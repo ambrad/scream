@@ -85,10 +85,10 @@
   </entry>
   -->
 
-
   <entry id="PIO_BUFFER_SIZE_LIMIT">
     <values>
       <value MACH="sandiatoss3">1</value>
+      <value MACH="ghost">1</value>
     </values>
   </entry>
 
@@ -154,7 +154,7 @@
 
   <entry id="LND_PIO_TYPENAME">
     <values>
-      <value mach="bebop" compset=".*CLM45.+MALISIA.*">netcdf</value>
+      <value mach="bebop" compset=".*CLM45.+MALI%SIA.*">netcdf</value>
     </values>
   </entry>
 
