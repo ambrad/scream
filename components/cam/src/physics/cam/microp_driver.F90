@@ -33,7 +33,7 @@ public :: &
    microp_driver_tend
 
 character(len=16)  :: microp_scheme   ! Microphysics scheme
-
+! AaronDonahue TODO: fix all P3 cases to call P3 schemes
 !===============================================================================
 contains
 !===============================================================================
@@ -49,6 +49,8 @@ subroutine microp_driver_readnl(nlfile)
 
    select case (microp_scheme)
    case ('MG')
+      call micro_mg_cam_readnl(nlfile)
+   case ('P3')
       call micro_mg_cam_readnl(nlfile)
    case ('RK')
       ! microp_driver doesn't handle this one
@@ -67,6 +69,8 @@ subroutine microp_driver_register
 
    select case (microp_scheme)
    case ('MG')
+      call micro_mg_cam_register()
+   case ('P3')
       call micro_mg_cam_register()
    case ('RK')
       ! microp_driver doesn't handle this one
@@ -96,6 +100,8 @@ function microp_driver_implements_cnst(name)
    select case (microp_scheme)
    case ('MG')
       microp_driver_implements_cnst = micro_mg_cam_implements_cnst(name)
+   case ('P3')
+      microp_driver_implements_cnst = micro_mg_cam_implements_cnst(name)
    case ('RK')
       ! microp_driver doesn't handle this one
       continue
@@ -120,6 +126,8 @@ subroutine microp_driver_init_cnst(name, q, gcid)
    select case (microp_scheme)
    case ('MG')
       call micro_mg_cam_init_cnst(name, q, gcid)
+   case ('P3')
+      call micro_mg_cam_init_cnst(name, q, gcid)
    case ('RK')
       ! microp_driver doesn't handle this one
       continue
@@ -140,6 +148,8 @@ subroutine microp_driver_init(pbuf2d)
 
    select case (microp_scheme)
    case ('MG')
+      call micro_mg_cam_init(pbuf2d)
+   case ('P3')
       call micro_mg_cam_init(pbuf2d)
    case ('RK')
       ! microp_driver doesn't handle this one
@@ -179,6 +189,10 @@ subroutine microp_driver_tend(state, ptend, dtime, pbuf)
 
    select case (microp_scheme)
    case ('MG')
+      call t_startf('microp_mg_cam_tend')
+      call micro_mg_cam_tend(state, ptend, dtime, pbuf)
+      call t_stopf('microp_mg_cam_tend')
+   case ('P3')
       call t_startf('microp_mg_cam_tend')
       call micro_mg_cam_tend(state, ptend, dtime, pbuf)
       call t_stopf('microp_mg_cam_tend')
