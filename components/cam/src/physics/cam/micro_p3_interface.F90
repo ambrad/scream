@@ -502,9 +502,10 @@ end subroutine micro_p3_readnl
     qrain_idx    = pbuf_get_index('QRAIN', ierr) !! local 
     nrain_idx    = pbuf_get_index('NRAIN', ierr) !! local
 
-       !TODO: add errstring and constants to init function  !DONE
-       call p3_init(p3_lookup_dir)
-       !call handle_errmsg(errstring, subname="micro_p3_init")
+    !TODO: add errstring and constants to init function  !DONE
+    call p3_init(p3_lookup_dir)
+    !call handle_errmsg(errstring, subname="micro_p3_init")
+
     ! Initialize physics buffer grid fields for accumulating precip and
     ! condensation
     if (is_first_step()) then
