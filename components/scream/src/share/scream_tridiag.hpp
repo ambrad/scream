@@ -36,7 +36,9 @@ namespace tridiag {
    There are three interface-level functions, and each supports the three
    problem formats. In all functions,
        * X = B on input and X = A \ B on output;
-       * (dl, d, du) are overwritten.
+       * (dl, d, du) are overwritten;
+       * the value type of each of (dl, d, du) must be the same;
+       * the value type of X can differ from that of (dl, d, du).
    The functions do not use any temporary workspace other than registers. The
    interface functions are as follows:
 
@@ -64,6 +66,11 @@ namespace tridiag {
    GPU. On a non-GPU computer, the typical use case is that a team has just one
    thread. On a GPU, the typical use case is that a team has 128 to 1024 threads
    (4 to 32 warps).
+
+   On a non-GPU computer, in the case of multiple A or L,RHS per team,
+   scream::pack::Pack may be used as the value type. On GPU, as usual, only
+   scream::pack::Pack<scalar_type, 1> makes sense, so it also likely makes sense
+   that the value type is just the POD (plain-old data) scalar_type.
 
    The rest of this file contains implementation details. Each of (a, b, c) is
    specialized to the various problem formats. This header documentation is the

@@ -26,3 +26,6 @@ CreateUnitTest(lin_interp "lin_interp_test.cpp;lin_interp_ref.f90" scream_share 
 
 # Test upper_bound
 CreateUnitTest(upper_bound "upper_bound_test.cpp" scream_share)
+
+# Test tridiag solvers
+CreateUnitTest(tridiag "tridiag_tests.cpp" scream_share THREADS 1 ${SCREAM_TEST_MAX_THREADS} ${SCREAM_TEST_THREAD_INC} OPTIONAL EXCLUDE_MAIN_CPP)
