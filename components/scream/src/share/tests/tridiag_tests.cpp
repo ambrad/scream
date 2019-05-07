@@ -3,6 +3,7 @@
 
 #include "share/scream_session.hpp"
 #include "share/scream_pack.hpp"
+#include "share/scream_pack_kokkos.hpp"
 #include "share/util/scream_arch.hpp"
 
 template <typename TridiagDiag>
@@ -39,17 +40,18 @@ void fill_data_matrix (DataArray X, const int& seed) {
 
 template <typename TridiagDiag, typename XArray, typename YArray>
 KOKKOS_INLINE_FUNCTION
-int matvec (TridiagDiag dl, TridiagDiag d, TridiagDiag du, XArray X, YArray Y) {
+int matvec (TridiagDiag dl, TridiagDiag d, TridiagDiag du, XArray X, YArray Y,
+            const int nrhs) {
   const int nrow = d.extent_int(0);
-  const int nrhs = X.extent_int(1);
   const int nA = dl.extent_int(2);
 
   assert(dl.extent_int(0) == nrow);
   assert(du.extent_int(0) == nrow);
   assert(X .extent_int(0) == nrow);
+  assert(X .extent_int(1) >= nrhs);
   assert(Y .extent_int(0) == nrow);
-  assert(Y .extent_int(1) == nrhs);
-  assert(nA == 1 || nA == nrhs);
+  assert(Y .extent_int(1) == X.extent_int(1));
+  assert(nA == 1 || nA == X.extent_int(1));
   assert(d .extent_int(2) == nA);
   assert(du.extent_int(2) == nA);
 
@@ -84,14 +86,14 @@ int matvec (TridiagDiag dl, TridiagDiag d, TridiagDiag du, XArray X, YArray Y) {
 }
 
 template <typename Array>
-scream::Real reldif (const Array& a, const Array& b) {
+scream::Real reldif (const Array& a, const Array& b, const int& nrhs) {
   assert(a.extent_int(0) == b.extent_int(0));
   assert(a.extent_int(1) == b.extent_int(1));
   assert(a.rank == 2);
   assert(b.rank == 2);
   scream::Real num = 0, den = 0;
   for (int i = 0; i < a.extent_int(0); ++i)
-    for (int j = 0; j < a.extent_int(1); ++j) {
+    for (int j = 0; j < nrhs; ++j) {
       num = std::max(num, std::abs(a(i,j) - b(i,j)));
       den = std::max(den, std::abs(a(i,j)));
     }
@@ -107,7 +109,7 @@ struct Solver {
     case thomas_pack: return "thomas_pack";
     case cr_pack: return "cr_pack";
     default:
-      assert(0);
+      scream_require_msg(false, "Not a valid solver: " << e);
       return "";
     }
   }
@@ -137,12 +139,39 @@ using TridiagArray = Kokkos::View<ScalarType***, TestConfig::TeamLayout>;
 template <typename ScalarType>
 using DataArray = Kokkos::View<ScalarType**, TestConfig::TeamLayout>;
 
+template <typename Scalar>
+void solve (const TestConfig& tc, TridiagArray<Scalar>& A, DataArray<Scalar>& X,
+            const int nrhs) {
+  const int nrow = A.extent_int(0);
+  const int nprob = std::min(nrhs, A.extent_int(2));
+  
+  assert(X.extent_int(0) == nrow);
+  assert(X.extent_int(1) >= nrhs);
+  assert(A.extent_int(1) == 3);
+  assert(nprob == 1 || nprob == nrhs);
+
+  switch (tc.solver) {
+  case Solver::thomas_scalar: {
+  } break;
+  case Solver::thomas_pack: {
+  } break;
+  case Solver::cr_scalar: {
+  } break;
+  case Solver::cr_pack: {
+  } break;
+  default: scream_require_msg(false, "Not a solver: " << tc.solver);
+  }
+}
+
 void run_test (const TestConfig& tc) {
   using Kokkos::create_mirror_view;
   using Kokkos::deep_copy;
   using Kokkos::subview;
   using Kokkos::ALL;
   using scream::Real;
+  using scream::pack::npack;
+  using scream::pack::scalarize;
+  using Pack = scream::pack::Pack<Real, SCREAM_PACK_SIZE>;
 
   using TeamPolicy = Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace>;
   using MT = typename TeamPolicy::member_type;
@@ -155,51 +184,51 @@ void run_test (const TestConfig& tc) {
       for (const bool A_many : {false, true}) {
         const int nprob = A_many ? nrhs : 1;
 
-        TridiagArray<Real>
-          A("A", nrow, 3, nprob),
+        const int rhs_npack = npack<Pack>(nrhs);
+        const int prob_npack = npack<Pack>(nprob);
+
+        TridiagArray<Pack>
+          A("A", nrow, 3, prob_npack),
           Acopy("A", A.extent(0), A.extent(1), A.extent(2));
-        DataArray<Real>
-          B("B", A.extent(0), nrhs), X("X", B.extent(0), B.extent(1)),
+        DataArray<Pack>
+          B("B", A.extent(0), rhs_npack), X("X", B.extent(0), B.extent(1)),
           Y("Y", X.extent(0), X.extent(1));
-        auto Am = create_mirror_view(A);
-        auto Bm = create_mirror_view(B);
+        const auto Am = create_mirror_view(A);
+        const auto Bm = create_mirror_view(B);
         {
-          const auto dl = subview(Am, ALL(), 0, ALL());
-          const auto d  = subview(Am, ALL(), 1, ALL());
-          const auto du = subview(Am, ALL(), 2, ALL());
+          const auto As = scalarize(Am);
+          const auto dl = subview(As, ALL(), 0, ALL());
+          const auto d  = subview(As, ALL(), 1, ALL());
+          const auto du = subview(As, ALL(), 2, ALL());
           fill_tridiag_matrix(dl, d, du, nrhs);
         }
-        fill_data_matrix(Bm, nrhs);
+        fill_data_matrix(scalarize(Bm), nrhs);
         deep_copy(A, Am);
         deep_copy(B, Bm);
         deep_copy(Acopy, A);
         deep_copy(X, B);
 
-        switch (tc.solver) {
-        case Solver::thomas_scalar: {
-        } break;
-        case Solver::thomas_pack: {
-        } break;
-        case Solver::cr_scalar: {
-        } break;
-        case Solver::cr_pack: {
-        } break;
-        default: scream_require_msg(false, "Not a solver: " << tc.solver);
-        }
+        solve(tc, A, X, nrhs);
 
         Real re; {
-          auto Acopym = create_mirror_view(Acopy);
-          const auto dl = subview(Acopym, ALL(), 0, ALL());
-          const auto d  = subview(Acopym, ALL(), 1, ALL());
-          const auto du = subview(Acopym, ALL(), 2, ALL());
+          const auto Acopym = create_mirror_view(Acopy);
+          const auto As = scalarize(Acopym);
+          const auto dl = subview(As, ALL(), 0, ALL());
+          const auto d  = subview(As, ALL(), 1, ALL());
+          const auto du = subview(As, ALL(), 2, ALL());
           auto Xm = create_mirror_view(X);
           auto Ym = create_mirror_view(Y);
           deep_copy(Acopym, Acopy);
           deep_copy(Xm, X);
-          matvec(dl, d, du, Xm, Ym);
-          re = reldif(Bm, Ym);
+          matvec(dl, d, du, scalarize(Xm), scalarize(Ym), nrhs);
+          re = reldif(scalarize(Bm), scalarize(Ym), nrhs);
         }
-        REQUIRE(re <= 50*std::numeric_limits<Real>::epsilon());
+        const bool pass = re <= 50*std::numeric_limits<Real>::epsilon();
+        scream_require_msg(pass, "FAIL: solver " << Solver::convert(tc.solver)
+                           << " with configuration " << tc.n_kokkos_thread
+                           << " " << tc.n_kokkos_vec << " " << nrow << " "
+                           << nrhs << " " << A_many<< "; reldif " << re);
+        REQUIRE(pass);
       }
     }
   }
