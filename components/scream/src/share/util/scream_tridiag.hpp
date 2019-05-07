@@ -30,6 +30,10 @@ namespace tridiag {
    In problem formats 2, 3, the i'th L,RHS in X, B is stored as X(:,i),
    B(:,i). Otherwise, X(:) = x, B(:) = b.
 
+   In all cases, arrays should have layout LayoutRight. LayoutStride is not
+   supported because it degrades performance. This library is intended to help
+   you get the best performance, so it disallows nonperformant types.
+
    This library is intended to be efficient when there are many problems of the
    forms (1,2,3) to solve simultaneously, with one per Kokkos team. For example,
    in a physics parameterization, a device may have 2000 physics columns, and
@@ -80,6 +84,42 @@ namespace tridiag {
 */
 
 namespace impl {
+
+template <typename TeamMember>
+KOKKOS_INLINE_FUNCTION
+int get_thread_id_within_team (const TeamMember& team) {
+  return team.team_rank();
+}
+
+template <typename TeamMember>
+KOKKOS_INLINE_FUNCTION
+int get_team_nthr (const TeamMember& team) {
+  return team.team_size();
+}
+
+#ifdef KOKKOS_ENABLE_CUDA
+KOKKOS_INLINE_FUNCTION
+int get_thread_id_within_team (const Kokkos::Impl::CudaTeamMember& team) {
+#ifdef __CUDA_ARCH__
+  // Can't use team.team_rank() here because vector direction also uses physical
+  // threads but TeamMember types don't expose that information.
+  return blockDim.x * threadIdx.y + threadIdx.x;
+#else
+  assert(0);
+  return -1;
+#endif
+}
+
+KOKKOS_INLINE_FUNCTION
+int get_team_nthr (const Kokkos::Impl::CudaTeamMember& team) {
+#ifdef __CUDA_ARCH__
+  return blockDim.x * blockDim.y;
+#else
+  assert(0);
+  return -1;
+#endif
+}
+#endif
 
 // The caller must provide the team_barrier after this function returns before A
 // is accessed.
@@ -275,8 +315,8 @@ void cr (const TeamMember& team,
   assert(d. extent_int(0) == nrow);
   assert(du.extent_int(0) == nrow);
   assert(X. extent_int(0) == nrow);
-  const int team_id = get_thread_id_within_team(team);
-  const int nteam = get_team_nthr(team);
+  const int team_id = impl::get_thread_id_within_team(team);
+  const int nteam = impl::get_team_nthr(team);
   int os = 1, stride;
   // Go down reduction.
   while ((stride = (os << 1)) < nrow) {
@@ -350,8 +390,8 @@ void cr (const TeamMember& team,
   assert(dl.extent_int(0) == nrow);
   assert(du.extent_int(0) == nrow);
   const int nrhs = X.extent_int(1);
-  const int tid = get_thread_id_within_team(team);
-  const int nthr = get_team_nthr(team);
+  const int tid = impl::get_thread_id_within_team(team);
+  const int nthr = impl::get_team_nthr(team);
   const int team_size = util::min(nrhs, nthr);
   const int nteam = nthr / team_size;
   const int team_id = tid / team_size;
@@ -440,8 +480,8 @@ void cr (const TeamMember& team,
   assert(d. extent_int(0) == nrow);
   assert(du.extent_int(0) == nrow);
   assert(X. extent_int(0) == nrow);
-  const int tid = get_thread_id_within_team(team);
-  const int nthr = get_team_nthr(team);
+  const int tid = impl::get_thread_id_within_team(team);
+  const int nthr = impl::get_team_nthr(team);
   const int team_size = util::min(nrhs, nthr);
   const int nteam = nthr / team_size;
   const int team_id = tid / team_size;

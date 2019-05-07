@@ -1,3 +1,6 @@
+#define AMB_NO_MPI
+#include "/home/ambradl/climate/sik/hommexx/dbg.hpp"
+
 #define CATCH_CONFIG_RUNNER
 #include "catch2/catch.hpp"
 
@@ -7,9 +10,6 @@
 #include "share/scream_pack.hpp"
 #include "share/scream_pack_kokkos.hpp"
 #include "share/util/scream_arch.hpp"
-
-#define AMB_NO_MPI
-#include "/home/ambradl/climate/sik/hommexx/dbg.hpp"
 
 template <typename TridiagDiag>
 KOKKOS_INLINE_FUNCTION
@@ -136,8 +136,8 @@ struct Solver {
 };
 
 Solver::Enum Solver::all[] = { thomas_team_scalar, thomas_team_pack,
-                               thomas_scalar, thomas_pack,
-                               cr_scalar, cr_pack };
+                               thomas_scalar, //thomas_pack,
+                               cr_scalar/*, cr_pack*/ };
 
 struct TestConfig {
   using BulkLayout = Kokkos::LayoutRight;
@@ -152,36 +152,121 @@ using TridiagArray = Kokkos::View<ScalarType***, TestConfig::TeamLayout>;
 template <typename ScalarType>
 using DataArray = Kokkos::View<ScalarType**, TestConfig::TeamLayout>;
 
-template <typename Scalar>
-void solve (const TestConfig& tc, TridiagArray<Scalar>& A, DataArray<Scalar>& X,
+template <typename Pack>
+void solve (const TestConfig& tc, TridiagArray<Pack>& A, DataArray<Pack>& X,
             const int nprob, const int nrhs) {
   using Kokkos::subview;
   using Kokkos::ALL;
   using scream::pack::scalarize;
+  using Scalar = typename Pack::scalar;
 
   using TeamPolicy = Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace>;
   using MT = typename TeamPolicy::member_type;
   TeamPolicy policy(1, tc.n_kokkos_thread, tc.n_kokkos_vec);
 
+  assert(nrhs > 1 || Pack::n == 1);
+  assert(nrhs > 1 || X.extent_int(1) == 1);
+  assert(nprob > 1 || Pack::n == 1);
+  assert(nrhs > 1 || A.extent_int(2) == 1);
+
   switch (tc.solver) {
-  case Solver::thomas_team_scalar: {
+  case Solver::thomas_team_scalar:
+  case Solver::thomas_team_pack: {
     const auto As = scalarize(A);
     const auto Xs = scalarize(X);
     const auto f = KOKKOS_LAMBDA (const MT& team) {
       const auto dl = subview(As, ALL(), 0, 0);
       const auto d  = subview(As, ALL(), 1, 0);
       const auto du = subview(As, ALL(), 2, 0);
-      scream::tridiag::thomas(team, dl, d, du, X);
+      if (tc.solver == Solver::thomas_team_scalar)
+        scream::tridiag::thomas(team, dl, d, du, Xs);
+      else
+        scream::tridiag::thomas(team, dl, d, du, X);
     };
     Kokkos::parallel_for(policy, f);
   } break;
-  case Solver::thomas_team_pack: {
-  } break;
   case Solver::thomas_scalar: {
+    if (nprob == 1) {
+      if (nrhs == 1) {
+        const auto As = scalarize(A);
+        const auto Xs = scalarize(X);
+        const auto f = KOKKOS_LAMBDA (const MT& team) {
+          const auto single = [&] () {
+            const auto dl = subview(As, ALL(), 0, 0);
+            const auto d  = subview(As, ALL(), 1, 0);
+            const auto du = subview(As, ALL(), 2, 0);
+            const auto x  = Kokkos::View<Scalar*>(&Xs(0,0), X.extent_int(0));
+            scream::tridiag::thomas(dl, d, du, x);
+          };
+          Kokkos::single(Kokkos::PerTeam(team), single);
+        };
+        Kokkos::parallel_for(policy, f);
+      } else {
+        const auto As = scalarize(A);
+        const auto Xs = scalarize(X);
+        const auto f = KOKKOS_LAMBDA (const MT& team) {
+          const auto single = [&] () {
+            const auto dl = subview(As, ALL(), 0, 0);
+            const auto d  = subview(As, ALL(), 1, 0);
+            const auto du = subview(As, ALL(), 2, 0);
+            scream::tridiag::thomas(dl, d, du, Xs);
+          };
+          Kokkos::single(Kokkos::PerTeam(team), single);
+        };
+        Kokkos::parallel_for(policy, f);
+      }
+    } else {
+      const auto As = scalarize(A);
+      const auto Xs = scalarize(X);
+      const auto f = KOKKOS_LAMBDA (const MT& team) {
+        const auto single = [&] () {
+          const auto dl = subview(As, ALL(), 0, ALL());
+          const auto d  = subview(As, ALL(), 1, ALL());
+          const auto du = subview(As, ALL(), 2, ALL());
+          scream::tridiag::thomas(dl, d, du, Xs);
+        };
+        Kokkos::single(Kokkos::PerTeam(team), single);
+      };
+      Kokkos::parallel_for(policy, f);
+    }
   } break;
   case Solver::thomas_pack: {
   } break;
   case Solver::cr_scalar: {
+    if (nprob == 1) {
+      if (nrhs == 1) {
+        const auto As = scalarize(A);
+        const auto Xs = scalarize(X);
+        const auto f = KOKKOS_LAMBDA (const MT& team) {
+          const auto dl = subview(As, ALL(), 0, 0);
+          const auto d  = subview(As, ALL(), 1, 0);
+          const auto du = subview(As, ALL(), 2, 0);
+          const auto x  = Kokkos::View<Scalar*>(&Xs(0,0), X.extent_int(0));
+          scream::tridiag::cr(team, dl, d, du, x);
+        };
+        Kokkos::parallel_for(policy, f);
+      } else {
+        const auto As = scalarize(A);
+        const auto Xs = scalarize(X);
+        const auto f = KOKKOS_LAMBDA (const MT& team) {
+          const auto dl = subview(As, ALL(), 0, 0);
+          const auto d  = subview(As, ALL(), 1, 0);
+          const auto du = subview(As, ALL(), 2, 0);
+          scream::tridiag::cr(team, dl, d, du, Xs);
+        };
+        Kokkos::parallel_for(policy, f);
+      }
+    } else {
+      const auto As = scalarize(A);
+      const auto Xs = scalarize(X);
+      const auto f = KOKKOS_LAMBDA (const MT& team) {
+        const auto dl = subview(As, ALL(), 0, ALL());
+        const auto d  = subview(As, ALL(), 1, ALL());
+        const auto du = subview(As, ALL(), 2, ALL());
+        scream::tridiag::cr(team, dl, d, du, Xs);
+      };
+      Kokkos::parallel_for(policy, f);
+    }
   } break;
   case Solver::cr_pack: {
   } break;
@@ -189,6 +274,7 @@ void solve (const TestConfig& tc, TridiagArray<Scalar>& A, DataArray<Scalar>& X,
   }
 }
 
+template <int pack_size>
 void run_test (const TestConfig& tc) {
   using Kokkos::create_mirror_view;
   using Kokkos::deep_copy;
@@ -197,19 +283,25 @@ void run_test (const TestConfig& tc) {
   using scream::Real;
   using scream::pack::npack;
   using scream::pack::scalarize;
-  using Pack = scream::pack::Pack<Real, SCREAM_PACK_SIZE>;
+  using Pack = scream::pack::Pack<Real, pack_size>;
 
   for (const int nrow : {1,2,3,4, 8,10,16, 32,43, 63,64,65, 111,128,129, 8192}) {
     const int nrhs_max = 60;
     const int nrhs_inc = 11;
     for (int nrhs = 1; nrhs <= nrhs_max; nrhs += nrhs_inc) {
       for (const bool A_many : {false, true}) {
+        if (nrhs == 1 && A_many) continue;
         const int nprob = A_many ? nrhs : 1;
 
-        // Skip unsupproted solver-problem format combinations.
+        // Skip unsupported solver-problem format combinations.
         if ((tc.solver == Solver::thomas_team_scalar ||
              tc.solver == Solver::thomas_team_pack)
             && nprob > 1)
+          continue;
+        if (nrhs == 1 && pack_size > 1)
+          continue;
+#pragma message "redo run_test templating to permit this case, as it's a case of interest"
+        if (nprob == 1 && pack_size > 1)
           continue;
 
         const int rhs_npack = npack<Pack>(nrhs);
@@ -256,15 +348,16 @@ void run_test (const TestConfig& tc) {
         ss << Solver::convert(tc.solver) << " " << tc.n_kokkos_thread
            << " " << tc.n_kokkos_vec << " | " << nrow << " " << nrhs << " "
            << A_many << " | log10 reldif " << std::log10(re);
-        scream_require_msg(pass, "FAIL: " << ss.str());
+        if ( ! pass) std::cout << "FAIL: " << ss.str() << "\n";
         REQUIRE(pass);
-        //std::cout << "PASS: " << ss.str() << "\n";
+        if (pass) std::cout << "PASS: " << ss.str() << "\n";
       }
     }
   }
 }
 
-TEST_CASE("tridiag", "correctness") {
+template <int pack_size>
+void run_test () {
   for (const auto solver : Solver::all) {
     TestConfig tc;
     tc.solver = solver;
@@ -272,12 +365,12 @@ TEST_CASE("tridiag", "correctness") {
       tc.n_kokkos_vec = 1;
       for (const int n_kokkos_thread : {128, 256, 512}) {
         tc.n_kokkos_thread = n_kokkos_thread;
-        run_test(tc);
+        run_test<pack_size>(tc);
       }
       tc.n_kokkos_vec = 32;
       for (const int n_kokkos_thread : {4}) {
         tc.n_kokkos_thread = n_kokkos_thread;
-        run_test(tc);
+        run_test<pack_size>(tc);
       }
     } else {
       const int concurrency = Kokkos::DefaultExecutionSpace::concurrency();
@@ -285,10 +378,16 @@ TEST_CASE("tridiag", "correctness") {
       for (const int n_kokkos_vec : {1, 2}) {
         tc.n_kokkos_thread = n_kokkos_thread;
         tc.n_kokkos_vec = n_kokkos_vec;
-        run_test(tc);
+        run_test<pack_size>(tc);
       }
     }
   }
+}
+
+TEST_CASE("tridiag", "correctness") {
+  run_test<1>();
+  if (SCREAM_PACK_SIZE > 1)
+    run_test<SCREAM_PACK_SIZE>();
 }
 
 int main (int argc, char **argv) {
