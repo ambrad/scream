@@ -2,7 +2,9 @@
 #define INCLUDE_SCREAM_TRIDIAG
 
 #include <cassert>
-#include <Kokkos_Core.hpp>
+
+#include "share/scream_kokkos.hpp"
+#include "share/util/scream_utils.hpp"
 
 namespace scream {
 namespace tridiag {
@@ -350,7 +352,7 @@ void cr (const TeamMember& team,
   const int nrhs = X.extent_int(1);
   const int tid = get_thread_id_within_team(team);
   const int nthr = get_team_nthr(team);
-  const int team_size = ko::min(nrhs, nthr);
+  const int team_size = util::min(nrhs, nthr);
   const int nteam = nthr / team_size;
   const int team_id = tid / team_size;
   const int team_tid = tid % team_size;
@@ -440,7 +442,7 @@ void cr (const TeamMember& team,
   assert(X. extent_int(0) == nrow);
   const int tid = get_thread_id_within_team(team);
   const int nthr = get_team_nthr(team);
-  const int team_size = ko::min(nrhs, nthr);
+  const int team_size = util::min(nrhs, nthr);
   const int nteam = nthr / team_size;
   const int team_id = tid / team_size;
   const int team_tid = tid % team_size;
