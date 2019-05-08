@@ -1,3 +1,5 @@
+#include <chrono>
+
 #include "tridiag_tests.hpp"
 
 namespace scream {
@@ -240,7 +242,9 @@ void run (const Input& in) {
   deep_copy(Acopy, A);
   deep_copy(X, B);
 
-  TeamPolicy policy(in.nprob, on_gpu ? 128 : 1, 1);
+  TeamPolicy policy(in.nprob,
+                    on_gpu ? (in.nwarp < 0 ? 128 : 32*in.nwarp) : 1,
+                    1);
   assert(in.nwarp < 0 || ! on_gpu || policy.team_size() == 32*in.nwarp);
   std::cout << string(in, policy.team_size()/32);
 
@@ -410,5 +414,3 @@ template void run<scream::Real>(const Input&);
 } // namespace test
 } // namespace tridiag
 } // namespace scream
-
-#include <chrono>
