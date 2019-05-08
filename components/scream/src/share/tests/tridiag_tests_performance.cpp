@@ -6,6 +6,7 @@ namespace scream {
 namespace tridiag {
 namespace test {
 namespace perf {
+
 void expect_another_arg (int i, int argc) {
   if (i == argc-1)
     throw std::runtime_error("Expected another cmd-line arg.");

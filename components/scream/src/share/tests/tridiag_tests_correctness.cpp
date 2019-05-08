@@ -5,7 +5,8 @@
 namespace scream {
 namespace tridiag {
 namespace test {
-namespace test_correct {
+namespace correct {
+
 struct Solver {
   enum Enum { thomas_team_scalar, thomas_team_pack,
               thomas_scalar, thomas_pack,
@@ -412,15 +413,16 @@ void run_test () {
     }
   }
 }
-} // namespace test_correct
+
+} // namespace correct
 } // namespace test
 } // namespace tridiag
 } // namespace scream
 
 TEST_CASE("tridiag", "correctness") {
-  scream::tridiag::test::test_correct::run_test<1,1>();
+  scream::tridiag::test::correct::run_test<1,1>();
   if (SCREAM_PACK_SIZE > 1) {
-    scream::tridiag::test::test_correct::run_test<1, SCREAM_PACK_SIZE>();
-    scream::tridiag::test::test_correct::run_test<SCREAM_PACK_SIZE, SCREAM_PACK_SIZE>();
+    scream::tridiag::test::correct::run_test<1, SCREAM_PACK_SIZE>();
+    scream::tridiag::test::correct::run_test<SCREAM_PACK_SIZE, SCREAM_PACK_SIZE>();
   }
 }
