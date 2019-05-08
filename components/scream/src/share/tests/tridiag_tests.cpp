@@ -117,9 +117,7 @@ struct Solver {
     case thomas_scalar: return "thomas_scalar";
     case thomas_pack: return "thomas_pack";
     case cr_scalar: return "cr_scalar";
-    default:
-      scream_require_msg(false, "Not a valid solver: " << e);
-      return "";
+    default: scream_require_msg(false, "Not a valid solver: " << e);
     }
   }
   static Enum convert (const std::string& s) {
@@ -153,6 +151,7 @@ template <typename Scalar>
 using DataArray = Kokkos::View<Scalar**, TestConfig::TeamLayout>;
 
 template <typename TridiagArray>
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<typename TridiagArray::value_type*>
 get_diag (const TridiagArray& A, const int diag_idx) {
   assert(A.extent_int(2) == 1);
@@ -162,14 +161,16 @@ get_diag (const TridiagArray& A, const int diag_idx) {
 }
 
 template <typename TridiagArray>
-Kokkos::View<typename TridiagArray::value_type**>
+Kokkos::View<typename TridiagArray::value_type**, TestConfig::TeamLayout>
+KOKKOS_INLINE_FUNCTION
 get_diags (const TridiagArray& A, const int diag_idx) {
-  return Kokkos::View<typename TridiagArray::value_type**>(
+  return Kokkos::View<typename TridiagArray::value_type**, TestConfig::TeamLayout>(
     &A.impl_map().reference(diag_idx, 0, 0),
     A.extent_int(1), A.extent_int(2));
 }
 
 template <typename DataArray>
+KOKKOS_INLINE_FUNCTION
 Kokkos::View<typename DataArray::value_type*>
 get_x (const DataArray& X) {
   assert(X.extent_int(1) == 1);
