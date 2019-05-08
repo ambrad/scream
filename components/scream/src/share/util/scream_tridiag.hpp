@@ -50,23 +50,23 @@ namespace tridiag {
 
    a. Use the Thomas algorithm to solve a problem within a Kokkos team:
 
-       template <typename TeamMember, typename TridiagDiag, typename DataArray>
-       void thomas(const TeamMember& team,
-                   TridiagDiag dl, TridiagDiag d, TridiagDiag du, DataArray X);
+        template <typename TeamMember, typename TridiagDiag, typename DataArray>
+        void thomas(const TeamMember& team,
+                    TridiagDiag dl, TridiagDiag d, TridiagDiag du, DataArray X);
 
    b. Use the Thomas algorithm to solve the problem in serial. Here no reference
-   is made to Kokkos parallel constructs. The call must be protected by
-   Kokkos::single(Kokkos::PerTeam).
+      is made to Kokkos parallel constructs. The call must be protected by
+      Kokkos::single(Kokkos::PerTeam).
 
-       template <typename TridiagDiag, typename DataArray>
-       void thomas(TridiagDiag dl, TridiagDiag d, TridiagDiag du, DataArray X);
+        template <typename TridiagDiag, typename DataArray>
+        void thomas(TridiagDiag dl, TridiagDiag d, TridiagDiag du, DataArray X);
    
    c. Cyclic reduction at the Kokkos team level. Any Kokkos (thread, vector)
-   parameterization works.
+      parameterization works.
 
-       template <typename TeamMember, typename TridiagDiag, typename DataArray>
-       void cr(const TeamMember& team,
-               TridiagDiag dl, TridiagDiag d, TridiagDiag du, DataArray X);
+        template <typename TeamMember, typename TridiagDiag, typename DataArray>
+        void cr(const TeamMember& team,
+                TridiagDiag dl, TridiagDiag d, TridiagDiag du, DataArray X);
 
    In practice, (a, b) are used on a non-GPU computer, and (c) is used on the
    GPU. On a non-GPU computer, the typical use case is that a team has just one
@@ -84,6 +84,14 @@ namespace tridiag {
 */
 
 namespace impl {
+
+template <typename Array>
+using EnableIfCanUsePointer =
+  typename std::enable_if<std::is_same<typename Array::array_layout,
+                                       Kokkos::LayoutRight>::value ||
+                          (std::is_same<typename Array::array_layout,
+                                        Kokkos::LayoutLeft>::value
+                           && Array::rank == 1)>::type;
 
 template <typename TeamMember>
 KOKKOS_INLINE_FUNCTION
@@ -259,10 +267,8 @@ KOKKOS_INLINE_FUNCTION
 void thomas (TridiagDiag dl, TridiagDiag d, TridiagDiag du, DataArray X,
              typename std::enable_if<TridiagDiag::rank == 1>::type* = 0,
              typename std::enable_if<DataArray::rank == 1>::type* = 0,
-             typename std::enable_if<std::is_same<typename DataArray::array_layout,
-                                                  Kokkos::LayoutRight>::value ||
-                                     std::is_same<typename DataArray::array_layout,
-                                                  Kokkos::LayoutLeft>::value>::type* = 0) {
+             impl::EnableIfCanUsePointer<TridiagDiag>* = 0,
+             impl::EnableIfCanUsePointer<DataArray>* = 0) {
   const int nrow = d.extent_int(0);
   assert( X.extent_int(0) == nrow);
   assert(dl.extent_int(0) == nrow);
@@ -275,8 +281,8 @@ KOKKOS_INLINE_FUNCTION
 void thomas (TridiagDiag dl, TridiagDiag d, TridiagDiag du, DataArray X,
              typename std::enable_if<TridiagDiag::rank == 1>::type* = 0,
              typename std::enable_if<DataArray::rank == 2>::type* = 0,
-             typename std::enable_if<std::is_same<typename DataArray::array_layout,
-                                                  Kokkos::LayoutRight>::value>::type* = 0) {
+             impl::EnableIfCanUsePointer<TridiagDiag>* = 0,
+             impl::EnableIfCanUsePointer<DataArray>* = 0) {
   const int nrow = d.extent_int(0);
   const int nrhs = X.extent_int(1);
   assert( X.extent_int(0) == nrow);
@@ -289,7 +295,9 @@ template <typename TridiagDiag, typename DataArray>
 KOKKOS_INLINE_FUNCTION
 void thomas (TridiagDiag dl, TridiagDiag d, TridiagDiag du, DataArray X,
              typename std::enable_if<TridiagDiag::rank == 2>::type* = 0,
-             typename std::enable_if<DataArray::rank == 2>::type* = 0) {
+             typename std::enable_if<DataArray::rank == 2>::type* = 0,
+             impl::EnableIfCanUsePointer<TridiagDiag>* = 0,
+             impl::EnableIfCanUsePointer<DataArray>* = 0) {
   const int nrow = d.extent_int(0);
   const int nrhs = X.extent_int(1);
   assert(X .extent_int(0) == nrow);
