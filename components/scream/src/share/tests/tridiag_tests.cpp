@@ -764,6 +764,7 @@ void run (const Input& in) {
 
   const auto et = duration(t0, t1);
   printf("run: et %1.3e et/datum %1.3e\n", et, et/(in.nprob*in.nrow*in.nrhs));
+
   Real re; {
     auto Acopym = create_mirror_view(Acopy);
     auto Xm = create_mirror_view(X);
@@ -778,10 +779,9 @@ void run (const Input& in) {
            subview(Xm, in.nprob-1, ALL(), ALL()),
            subview(Ym, in.nprob-1, ALL(), ALL()),
            nA, in.nrhs);
-    re = reldif(
-      subview(Bm, in.nprob-1, ALL(), ALL()),
-      subview(Ym, in.nprob-1, ALL(), ALL()),
-      in.nrhs);
+    re = reldif(subview(Bm, in.nprob-1, ALL(), ALL()),
+                subview(Ym, in.nprob-1, ALL(), ALL()),
+                in.nrhs);
   }
   if (re > 50*std::numeric_limits<Real>::epsilon())
     std::cout << "run: " << " re " << re << "\n";
