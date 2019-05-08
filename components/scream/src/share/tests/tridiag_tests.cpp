@@ -394,7 +394,7 @@ void run_test (const TestConfig& tc) {
   using DataPack = scream::pack::Pack<Real, data_pack_size>;
 
 #if 1
-  const int nrows[] = {1,2,3,4, 8,10,16, 32,43, 63,64,65, 111,128,129, 8192};
+  const int nrows[] = {1,2,3,4,5, 8,10,16, 32,43, 63,64,65, 111,128,129, 2048};
   const int nrhs_max = 60;
   const int nrhs_inc = 11;
 #else
@@ -494,6 +494,11 @@ void run_test () {
       }
       tc.n_kokkos_vec = 32;
       for (const int n_kokkos_thread : {4}) {
+        tc.n_kokkos_thread = n_kokkos_thread;
+        run_test<A_pack_size, data_pack_size>(tc);
+      }
+      tc.n_kokkos_vec = 8;
+      for (const int n_kokkos_thread : {16}) {
         tc.n_kokkos_thread = n_kokkos_thread;
         run_test<A_pack_size, data_pack_size>(tc);
       }
