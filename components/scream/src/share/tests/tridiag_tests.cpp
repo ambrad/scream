@@ -688,6 +688,9 @@ void pack_scalar_matrix (const ST& a, DT b, const int nrhs) {
   Kokkos::parallel_for(np*3*nrow*nrhs, f);
 }
 
+using BulkLayout = Kokkos::LayoutRight;
+using TeamLayout = Kokkos::LayoutRight;
+
 template <typename TridiagArray>
 KOKKOS_INLINE_FUNCTION
 Kokkos::View<typename TridiagArray::value_type*>
@@ -700,9 +703,9 @@ get_diag (const TridiagArray& A, const int& ip, const int& diag_idx) {
 
 template <typename TridiagArray>
 KOKKOS_INLINE_FUNCTION
-Kokkos::View<typename TridiagArray::value_type**>
+Kokkos::View<typename TridiagArray::value_type**, TeamLayout>
 get_diags (const TridiagArray& A, const int& ip, const int& diag_idx) {
-  return Kokkos::View<typename TridiagArray::value_type**>(
+  return Kokkos::View<typename TridiagArray::value_type**, TeamLayout>(
     &A.impl_map().reference(ip, diag_idx, 0, 0),
     A.extent_int(2), A.extent_int(3));
 }
@@ -718,14 +721,11 @@ get_x (const DataArray& X, const int& ip) {
 
 template <typename DataArray>
 KOKKOS_INLINE_FUNCTION
-Kokkos::View<typename DataArray::value_type**>
+Kokkos::View<typename DataArray::value_type**, TeamLayout>
 get_xs (const DataArray& X, const int& ip) {
-  return Kokkos::View<typename DataArray::value_type**>(
+  return Kokkos::View<typename DataArray::value_type**, TeamLayout>(
     &X.impl_map().reference(ip, 0, 0), X.extent_int(1), X.extent_int(2));
 }
-
-using BulkLayout = Kokkos::LayoutRight;
-using TeamLayout = Kokkos::LayoutRight;
 
 template <typename Scalar>
 using TridiagArrays = Kokkos::View<Scalar****, BulkLayout>;
