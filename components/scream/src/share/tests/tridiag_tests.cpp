@@ -149,11 +149,6 @@ struct TestConfig {
   int n_kokkos_thread, n_kokkos_vec;
 };
 
-template <typename Scalar>
-using TridiagArray = Kokkos::View<Scalar***, TestConfig::TeamLayout>;
-template <typename Scalar>
-using DataArray = Kokkos::View<Scalar**, TestConfig::TeamLayout>;
-
 template <typename TridiagArray>
 KOKKOS_INLINE_FUNCTION
 Kokkos::View<typename TridiagArray::value_type*>
@@ -181,6 +176,11 @@ get_x (const DataArray& X) {
   return Kokkos::View<typename DataArray::value_type*>(
     &X.impl_map().reference(0, 0), X.extent_int(0));
 }
+
+template <typename Scalar>
+using TridiagArray = Kokkos::View<Scalar***, TestConfig::TeamLayout>;
+template <typename Scalar>
+using DataArray = Kokkos::View<Scalar**, TestConfig::TeamLayout>;
 
 template <bool same_pack_size, typename APack, typename DataPack>
 struct Solve;
@@ -555,7 +555,7 @@ struct Input {
   Input ()
     : method(Solver::cr), nprob(2048), nrow(128), nrhs(43), nwarp(-1),
       pack( ! scream::util::OnGpu<Kokkos::DefaultExecutionSpace>::value),
-      oneA(true)
+      oneA(false)
   {}
 
   bool parse (int argc, char** argv) {
@@ -688,6 +688,42 @@ void pack_scalar_matrix (const ST& a, DT b, const int nrhs) {
   Kokkos::parallel_for(np*3*nrow*nrhs, f);
 }
 
+template <typename TridiagArray>
+KOKKOS_INLINE_FUNCTION
+Kokkos::View<typename TridiagArray::value_type*>
+get_diag (const TridiagArray& A, const int& ip, const int& diag_idx) {
+  assert(A.extent_int(3) == 1);
+  return Kokkos::View<typename TridiagArray::value_type*>(
+    &A.impl_map().reference(ip, diag_idx, 0, 0),
+    A.extent_int(2));
+}
+
+template <typename TridiagArray>
+KOKKOS_INLINE_FUNCTION
+Kokkos::View<typename TridiagArray::value_type**>
+get_diags (const TridiagArray& A, const int& ip, const int& diag_idx) {
+  return Kokkos::View<typename TridiagArray::value_type**>(
+    &A.impl_map().reference(ip, diag_idx, 0, 0),
+    A.extent_int(2), A.extent_int(3));
+}
+
+template <typename DataArray>
+KOKKOS_INLINE_FUNCTION
+Kokkos::View<typename DataArray::value_type*>
+get_x (const DataArray& X, const int& ip) {
+  assert(X.extent_int(2) == 1);
+  return Kokkos::View<typename DataArray::value_type*>(
+    &X.impl_map().reference(ip, 0, 0), X.extent_int(1));
+}
+
+template <typename DataArray>
+KOKKOS_INLINE_FUNCTION
+Kokkos::View<typename DataArray::value_type**>
+get_xs (const DataArray& X, const int& ip) {
+  return Kokkos::View<typename DataArray::value_type**>(
+    &X.impl_map().reference(ip, 0, 0), X.extent_int(1), X.extent_int(2));
+}
+
 using BulkLayout = Kokkos::LayoutRight;
 using TeamLayout = Kokkos::LayoutRight;
 
@@ -703,6 +739,7 @@ void run (const Input& in) {
   using Kokkos::subview;
   using Kokkos::ALL;
   using TeamPolicy = Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace>;
+  using MT = typename TeamPolicy::member_type;
   using Solver = Input::Solver;
 
   const auto gettime = [&] () {
@@ -743,20 +780,87 @@ void run (const Input& in) {
   switch (in.method) {
   case Solver::thomas: {
     if (on_gpu) {
-      if (in.nrhs == 1) {
-        t0 = gettime();
-#if 0
-        const auto f = KOKKOS_LAMBDA (const typename TeamPolicy::member_type& team) {
-          const int ip = team.league_rank();
-          const auto dl = subview(A, ip, 0, ALL(), 0);
-          const auto d  = subview(A, ip, 1, ALL(), 0);
-          const auto du = subview(A, ip, 2, ALL(), 0);
-          scream::tridiag::thomas(team, dl, d, du, subview(X, ip, ALL(), 0));
-        };
-        parallel_for(policy, f);
-#endif
-        Kokkos::fence();
-        t1 = gettime();
+      scream_require_msg(
+        in.oneA, "On GPU, only 1 A/team is supported in the Thomas algorithm.");
+      t0 = gettime();
+      const auto f = KOKKOS_LAMBDA (const MT& team) {
+        const int ip = team.league_rank();
+        const auto dl = get_diag(A, ip, 0);
+        const auto d  = get_diag(A, ip, 1);
+        const auto du = get_diag(A, ip, 2);
+        const auto x = get_xs(X, ip);
+        scream::tridiag::thomas(team, dl, d, du, x);
+      };
+      Kokkos::parallel_for(policy, f);
+      Kokkos::fence();
+      t1 = gettime();
+    } else {
+      if (in.pack) {
+      } else {
+        for (int trial = 0; trial < 2; ++trial) {
+          deep_copy(A, Acopy);
+          // Kokkos::deep_copy was messing up the timing for some reason. Do it
+          // manually.
+          const auto dc = KOKKOS_LAMBDA (const MT& team) {
+            const auto s = [&] () {
+              const int i = team.league_rank();
+              for (int r = 0; r < in.nrow; ++r)
+                for (int c = 0; c < in.nrhs; ++c)
+                  X(i,r,c) = B(i,r,c);
+            };
+            Kokkos::single(Kokkos::PerTeam(team), s);
+          };
+          Kokkos::parallel_for(policy, dc);
+          Kokkos::fence();
+          t0 = gettime();
+          if (in.nrhs == 1) {
+            assert(in.oneA);
+            const auto f = KOKKOS_LAMBDA (const MT& team) {
+              const auto single = [&] () {
+                const int ip = team.league_rank();
+                const auto dl = get_diag(A, ip, 0);
+                const auto d  = get_diag(A, ip, 1);
+                const auto du = get_diag(A, ip, 2);
+                const auto x  = get_x(X, ip);
+                scream::tridiag::thomas(dl, d, du, x);
+              };
+              Kokkos::single(Kokkos::PerTeam(team), single);
+            };
+            Kokkos::parallel_for(policy, f);
+          } else {
+            if (in.oneA) {
+              const auto f = KOKKOS_LAMBDA (const MT& team) {
+                const auto single = [&] () {
+                  const int ip = team.league_rank();
+                  const auto dl = get_diag(A, ip, 0);
+                  const auto d  = get_diag(A, ip, 1);
+                  const auto du = get_diag(A, ip, 2);
+                  const auto x  = get_xs(X, ip);
+                  scream::tridiag::thomas(dl, d, du, x);
+                };
+                Kokkos::single(Kokkos::PerTeam(team), single);
+              };
+              Kokkos::parallel_for(policy, f);
+            } else {
+              const auto f = KOKKOS_LAMBDA (const MT& team) {
+                const auto single = [&] () {
+                  const int ip = team.league_rank();
+                  const auto dl = get_diags(A, ip, 0);
+                  const auto d  = get_diags(A, ip, 1);
+                  const auto du = get_diags(A, ip, 2);
+                  const auto x  = get_xs(X, ip);
+                  assert(x.extent_int(1) == in.nrhs);
+                  assert(d.extent_int(1) == in.nrhs);
+                  scream::tridiag::thomas(dl, d, du, x);
+                };
+                Kokkos::single(Kokkos::PerTeam(team), single);
+              };
+              Kokkos::parallel_for(policy, f);
+            }
+          }
+          Kokkos::fence();
+          t1 = gettime();
+        }
       }
     }
   } break;
