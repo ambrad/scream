@@ -1,6 +1,3 @@
-#define AMB_NO_MPI
-#include "/home/ambradl/climate/sik/hommexx/dbg.hpp"
-
 #define CATCH_CONFIG_RUNNER
 #include "catch2/catch.hpp"
 
@@ -98,6 +95,10 @@ scream::Real reldif (const Array& a, const Array& b, const int nrhs) {
   scream::Real num = 0, den = 0;
   for (int i = 0; i < a.extent_int(0); ++i)
     for (int j = 0; j < nrhs; ++j) {
+      if (std::isnan(a(i,j)) || std::isnan(b(i,j)) ||
+          std::isinf(a(i,j)) || std::isinf(b(i,j))) {
+        return std::numeric_limits<scream::Real>::infinity();
+      }
       num = std::max(num, std::abs(a(i,j) - b(i,j)));
       den = std::max(den, std::abs(a(i,j)));
     }
@@ -107,7 +108,7 @@ scream::Real reldif (const Array& a, const Array& b, const int nrhs) {
 struct Solver {
   enum Enum { thomas_team_scalar, thomas_team_pack,
               thomas_scalar, thomas_pack,
-              cr_scalar, cr_pack,
+              cr_scalar,
               error };
   static std::string convert (Enum e) {
     switch (e) {
@@ -116,7 +117,6 @@ struct Solver {
     case thomas_scalar: return "thomas_scalar";
     case thomas_pack: return "thomas_pack";
     case cr_scalar: return "cr_scalar";
-    case cr_pack: return "cr_pack";
     default:
       scream_require_msg(false, "Not a valid solver: " << e);
       return "";
@@ -128,7 +128,6 @@ struct Solver {
     if (s == "thomas_scalar") return thomas_scalar;
     if (s == "thomas_pack") return thomas_pack;
     if (s == "cr_scalar") return cr_scalar;
-    if (s == "cr_pack") return cr_pack;
     return error;
   }
 
@@ -137,7 +136,7 @@ struct Solver {
 
 Solver::Enum Solver::all[] = { thomas_team_scalar, thomas_team_pack,
                                thomas_scalar, thomas_pack,
-                               cr_scalar, cr_pack };
+                               cr_scalar };
 
 namespace test_correct {
 struct TestConfig {
@@ -321,8 +320,6 @@ struct Solve<true, APack, DataPack> {
         Kokkos::parallel_for(policy, f);
       }
     } break;
-    case Solver::cr_pack: {
-    } break;
     default:
       scream_require_msg(false, "Same pack size: " << Solver::convert(tc.solver));
     }
@@ -373,8 +370,6 @@ struct Solve<false, APack, DataPack> {
       };
       Kokkos::parallel_for(policy, f);
     } break;
-    case Solver::cr_pack: {
-    } break;
     default:
       scream_require_msg(false, "Different pack size: " << Solver::convert(tc.solver));
     }
@@ -393,9 +388,17 @@ void run_test (const TestConfig& tc) {
   using APack = scream::pack::Pack<Real, A_pack_size>;
   using DataPack = scream::pack::Pack<Real, data_pack_size>;
 
-  for (const int nrow : {1,2,3,4, 8,10,16, 32,43, 63,64,65/*, 111,128,129, 8192*/}) {
-    const int nrhs_max = 60;
-    const int nrhs_inc = 11;
+#if 1
+  const int nrows[] = {1,2,3,4, 8,10,16, 32,43, 63,64,65, 111,128,129, 8192};
+  const int nrhs_max = 60;
+  const int nrhs_inc = 11;
+#else
+  const int nrows[] = {10};
+  const int nrhs_max = 6;
+  const int nrhs_inc = 5;  
+#endif
+
+  for (const int nrow : nrows) {
     for (int nrhs = 1; nrhs <= nrhs_max; nrhs += nrhs_inc) {
       for (const bool A_many : {false, true}) {
         if (nrhs == 1 && A_many) continue;
@@ -406,8 +409,18 @@ void run_test (const TestConfig& tc) {
              tc.solver == Solver::thomas_team_pack)
             && nprob > 1)
           continue;
+
+        // Skip combinations generated at this and higher levels that Solve::run
+        // doesn't support to reduce redundancies.
         if ((nrhs  == 1 && data_pack_size > 1) ||
             (nprob == 1 && A_pack_size    > 1))
+          continue;
+        if ((tc.solver == Solver::thomas_team_scalar ||
+             tc.solver == Solver::thomas_scalar ||
+             tc.solver == Solver::cr_scalar) &&
+            data_pack_size > 1)
+          continue;
+        if (static_cast<int>(APack::n) != static_cast<int>(DataPack::n) && nprob > 1)
           continue;
 
         const int prob_npack = npack<APack>(nprob);
@@ -457,7 +470,7 @@ void run_test (const TestConfig& tc) {
            << A_many << " | log10 reldif " << std::log10(re);
         if ( ! pass) std::cout << "FAIL: " << ss.str() << "\n";
         REQUIRE(pass);
-        if (pass) std::cout << "PASS: " << ss.str() << "\n";
+        //std::cout << "PASS: " << ss.str() << "\n";
       }
     }
   }
@@ -494,7 +507,6 @@ void run_test () {
 
 TEST_CASE("tridiag", "correctness") {
   test_correct::run_test<1,1>();
-  return;
   if (SCREAM_PACK_SIZE > 1) {
     test_correct::run_test<1, SCREAM_PACK_SIZE>();
     test_correct::run_test<SCREAM_PACK_SIZE, SCREAM_PACK_SIZE>();
