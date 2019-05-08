@@ -865,6 +865,45 @@ void run (const Input& in) {
     }
   } break;
   case Solver::cr: {
+    t0 = gettime();
+    if (in.nrhs == 1) {
+      assert(in.oneA);
+      const auto f = KOKKOS_LAMBDA (const MT& team) {
+        const int ip = team.league_rank();
+        const auto dl = get_diag(A, ip, 0);
+        const auto d  = get_diag(A, ip, 1);
+        const auto du = get_diag(A, ip, 2);
+        const auto x  = get_x(X, ip);
+        scream::tridiag::cr(team, dl, d, du, x);
+      };
+      Kokkos::parallel_for(policy, f);
+    } else {
+      if (in.oneA) {
+        const auto f = KOKKOS_LAMBDA (const MT& team) {
+          const int ip = team.league_rank();
+          const auto dl = get_diag(A, ip, 0);
+          const auto d  = get_diag(A, ip, 1);
+          const auto du = get_diag(A, ip, 2);
+          const auto x  = get_xs(X, ip);
+          scream::tridiag::cr(team, dl, d, du, x);
+        };
+        Kokkos::parallel_for(policy, f);
+      } else {
+        const auto f = KOKKOS_LAMBDA (const MT& team) {
+          const int ip = team.league_rank();
+          const auto dl = get_diags(A, ip, 0);
+          const auto d  = get_diags(A, ip, 1);
+          const auto du = get_diags(A, ip, 2);
+          const auto x  = get_xs(X, ip);
+          assert(x.extent_int(1) == in.nrhs);
+          assert(d.extent_int(1) == in.nrhs);
+          scream::tridiag::cr(team, dl, d, du, x);
+        };
+        Kokkos::parallel_for(policy, f);
+      }
+    }
+    Kokkos::fence();
+    t1 = gettime();    
   } break;
   default:
     std::cout << "run does not support "
