@@ -217,8 +217,8 @@ void run (const Input& in) {
   using scream::pack::npack;
   using TeamPolicy = Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace>;
   using MT = typename TeamPolicy::member_type;
-  using APack = scream::pack::Pack<Real, SCREAM_PACK_SIZE>;
-  using DataPack = scream::pack::Pack<Real, SCREAM_PACK_SIZE>;
+  using APack = scream::pack::Pack<Real, SCREAM_SMALL_PACK_SIZE>;
+  using DataPack = scream::pack::Pack<Real, SCREAM_SMALL_PACK_SIZE>;
 
   const auto gettime = [&] () {
     return std::chrono::steady_clock::now();
