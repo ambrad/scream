@@ -63,6 +63,7 @@ bool Input::parse (int argc, char** argv) {
       return false;
     }
   }
+  if (nrhs == 1) oneA = true;
   return true;
 }
 
@@ -211,8 +212,12 @@ void run (const Input& in) {
   using Kokkos::deep_copy;
   using Kokkos::subview;
   using Kokkos::ALL;
+  using scream::pack::scalarize;
+  using scream::pack::npack;
   using TeamPolicy = Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace>;
   using MT = typename TeamPolicy::member_type;
+  using APack = scream::pack::Pack<Real, SCREAM_PACK_SIZE>;
+  using DataPack = scream::pack::Pack<Real, SCREAM_PACK_SIZE>;
 
   const auto gettime = [&] () {
     return std::chrono::steady_clock::now();
@@ -225,10 +230,35 @@ void run (const Input& in) {
   const bool on_gpu = scream::util::OnGpu<Kokkos::DefaultExecutionSpace>::value;
   const int nA = in.oneA ? 1 : in.nrhs;
 
-  TridiagArrays<Real> A("A", in.nprob, 3, in.nrow, nA),
-    Acopy("Acopy", A.extent(0), A.extent(1), A.extent(2), A.extent(3));
-  DataArrays<Real> B("B", in.nprob, in.nrow, in.nrhs),
-    X("X", in.nprob, in.nrow, in.nrhs), Y("Y", in.nprob, in.nrow, in.nrhs);
+  TridiagArrays<Real> A, Acopy;
+  DataArrays<Real> B, X, Y;
+  TridiagArrays<APack> Ap, Apcopy;
+  DataArrays<DataPack> Bp, Xp, Yp;
+  if (in.pack) {
+    if (in.oneA) {
+      A = TridiagArrays<Real>("A", in.nprob, 3, in.nrow, nA);
+      Acopy = TridiagArrays<Real>("Acopy", in.nprob, 3, in.nrow, nA);
+    } else {
+      Ap = TridiagArrays<APack>("A", in.nprob, 3, in.nrow, npack<APack>(nA));
+      Apcopy = TridiagArrays<APack>("Acopy", in.nprob, 3, in.nrow, npack<APack>(nA));
+      A = scalarize(Ap);
+      Acopy = scalarize(Apcopy);
+    }
+    const int nrhs = npack<DataPack>(in.nrhs);
+    Bp = DataArrays<DataPack>("B", in.nprob, in.nrow, nrhs);
+    Xp = DataArrays<DataPack>("X", in.nprob, in.nrow, nrhs);
+    Yp = DataArrays<DataPack>("Y", in.nprob, in.nrow, nrhs);
+    B = scalarize(Bp);
+    X = scalarize(Xp);
+    Y = scalarize(Yp);
+  } else {
+    A = TridiagArrays<Real>("A", in.nprob, 3, in.nrow, nA);
+    Acopy = TridiagArrays<Real>("Acopy", in.nprob, 3, in.nrow, nA);
+    B = DataArrays<Real>("B", in.nprob, in.nrow, in.nrhs);
+    X = DataArrays<Real>("X", in.nprob, in.nrow, in.nrhs);
+    Y = DataArrays<Real>("Y", in.nprob, in.nrow, in.nrhs);
+  }
+
   auto Am = create_mirror_view(A);
   auto Bm = create_mirror_view(B);
   for (int i = 0; i < in.nprob; ++i) {
