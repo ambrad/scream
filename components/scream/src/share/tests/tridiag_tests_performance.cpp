@@ -230,6 +230,8 @@ void run (const Input& in) {
   const bool on_gpu = scream::util::OnGpu<Kokkos::DefaultExecutionSpace>::value;
   const int nA = in.oneA ? 1 : in.nrhs;
 
+  scream_require_msg( ! in.pack || in.method != Solver::cr, "CR has no pack version.");
+
   TridiagArrays<Real> A, Acopy;
   DataArrays<Real> B, X, Y;
   TridiagArrays<APack> Ap, Apcopy;
@@ -300,6 +302,69 @@ void run (const Input& in) {
       t1 = gettime();
     } else {
       if (in.pack) {
+        const int nrhs = npack<DataPack>(in.nrhs);
+        for (int trial = 0; trial < 2; ++trial) {
+          if (in.oneA) deep_copy(A, Acopy); else deep_copy(Ap, Apcopy);
+          const auto dc = KOKKOS_LAMBDA (const MT& team) {
+            const auto s = [&] () {
+              const int i = team.league_rank();
+              for (int r = 0; r < in.nrow; ++r)
+                for (int c = 0; c < nrhs; ++c)
+                  Xp(i,r,c) = Bp(i,r,c);
+            };
+            Kokkos::single(Kokkos::PerTeam(team), s);
+          };
+          Kokkos::parallel_for(policy, dc);
+          Kokkos::fence();
+          t0 = gettime();
+          if (in.nrhs == 1) {
+            assert(in.oneA);
+            const auto f = KOKKOS_LAMBDA (const MT& team) {
+              const auto single = [&] () {
+                const int ip = team.league_rank();
+                const auto dl = get_diag(A, ip, 0);
+                const auto d  = get_diag(A, ip, 1);
+                const auto du = get_diag(A, ip, 2);
+                const auto x  = get_x(Xp, ip);
+                scream::tridiag::thomas(dl, d, du, x);
+              };
+              Kokkos::single(Kokkos::PerTeam(team), single);
+            };
+            Kokkos::parallel_for(policy, f);
+          } else {
+            if (in.oneA) {
+              const auto f = KOKKOS_LAMBDA (const MT& team) {
+                const auto single = [&] () {
+                  const int ip = team.league_rank();
+                  const auto dl = get_diag(A, ip, 0);
+                  const auto d  = get_diag(A, ip, 1);
+                  const auto du = get_diag(A, ip, 2);
+                  const auto x  = get_xs(Xp, ip);
+                  scream::tridiag::thomas(dl, d, du, x);
+                };
+                Kokkos::single(Kokkos::PerTeam(team), single);
+              };
+              Kokkos::parallel_for(policy, f);
+            } else {
+              const auto f = KOKKOS_LAMBDA (const MT& team) {
+                const auto single = [&] () {
+                  const int ip = team.league_rank();
+                  const auto dl = get_diags(Ap, ip, 0);
+                  const auto d  = get_diags(Ap, ip, 1);
+                  const auto du = get_diags(Ap, ip, 2);
+                  const auto x  = get_xs(Xp, ip);
+                  assert(x.extent_int(1) == nrhs);
+                  assert(d.extent_int(1) == nrhs);
+                  scream::tridiag::thomas(dl, d, du, x);
+                };
+                Kokkos::single(Kokkos::PerTeam(team), single);
+              };
+              Kokkos::parallel_for(policy, f);
+            }
+          }
+          Kokkos::fence();
+          t1 = gettime();
+        }
       } else {
         for (int trial = 0; trial < 2; ++trial) {
           deep_copy(A, Acopy);
@@ -369,6 +434,7 @@ void run (const Input& in) {
     }
   } break;
   case Solver::cr: {
+    assert( ! in.pack);
     t0 = gettime();
     if (in.nrhs == 1) {
       assert(in.oneA);
