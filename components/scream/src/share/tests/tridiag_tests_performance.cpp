@@ -64,6 +64,7 @@ bool Input::parse (int argc, char** argv) {
     }
   }
   if (nrhs == 1) oneA = true;
+  if (method == Solver::cr) pack = false;
   return true;
 }
 
