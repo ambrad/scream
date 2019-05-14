@@ -181,6 +181,9 @@ void run (const Input& in) {
 
   auto Am = create_mirror_view(A);
   auto Bm = create_mirror_view(B);
+# ifdef KOKKOS_ENABLE_OPENMP
+# pragma omp parallel for
+# endif
   for (int i = 0; i < in.nprob; ++i) {
     const auto dl = subview(Am, i, 0, ALL(), ALL());
     const auto d  = subview(Am, i, 1, ALL(), ALL());
@@ -220,10 +223,22 @@ void run (const Input& in) {
       t1 = gettime();
     } else {
       if (in.pack) {
-        const int nrhs = npack<DataPack>(in.nrhs);
         for (int trial = 0; trial < 2; ++trial) {
-          if (in.oneA) deep_copy(A, Acopy); else deep_copy(Ap, Apcopy);
-          const auto dc = KOKKOS_LAMBDA (const MT& team) {
+          // Manual deep copy b/c Kokkos::deep_copy has some side effect that
+          // affects performance on SKX and especially KNL.
+          const auto Adc = KOKKOS_LAMBDA (const MT& team) {
+            const auto s = [&] () {
+              const int i = team.league_rank();
+              for (int k = 0; k < 3; ++k)
+                for (int r = 0; r < in.nrow; ++r)
+                  for (int c = 0; c < nA; ++c)
+                    A(i,k,r,c) = Acopy(i,k,r,c);
+            };
+            Kokkos::single(Kokkos::PerTeam(team), s);
+          };
+          Kokkos::parallel_for(policy, Adc);
+          const int nrhs = npack<DataPack>(in.nrhs);
+          const auto Xdc = KOKKOS_LAMBDA (const MT& team) {
             const auto s = [&] () {
               const int i = team.league_rank();
               for (int r = 0; r < in.nrow; ++r)
@@ -232,7 +247,7 @@ void run (const Input& in) {
             };
             Kokkos::single(Kokkos::PerTeam(team), s);
           };
-          Kokkos::parallel_for(policy, dc);
+          Kokkos::parallel_for(policy, Xdc);
           Kokkos::fence();
           t0 = gettime();
           if (in.nrhs == 1) {
@@ -285,10 +300,18 @@ void run (const Input& in) {
         }
       } else {
         for (int trial = 0; trial < 2; ++trial) {
-          deep_copy(A, Acopy);
-          // Kokkos::deep_copy was messing up the timing for some reason. Do it
-          // manually.
-          const auto dc = KOKKOS_LAMBDA (const MT& team) {
+          const auto Adc = KOKKOS_LAMBDA (const MT& team) {
+            const auto s = [&] () {
+              const int i = team.league_rank();
+              for (int k = 0; k < 3; ++k)
+                for (int r = 0; r < in.nrow; ++r)
+                  for (int c = 0; c < nA; ++c)
+                    A(i,k,r,c) = Acopy(i,k,r,c);
+            };
+            Kokkos::single(Kokkos::PerTeam(team), s);
+          };
+          Kokkos::parallel_for(policy, Adc);
+          const auto Xdc = KOKKOS_LAMBDA (const MT& team) {
             const auto s = [&] () {
               const int i = team.league_rank();
               for (int r = 0; r < in.nrow; ++r)
@@ -297,7 +320,7 @@ void run (const Input& in) {
             };
             Kokkos::single(Kokkos::PerTeam(team), s);
           };
-          Kokkos::parallel_for(policy, dc);
+          Kokkos::parallel_for(policy, Xdc);
           Kokkos::fence();
           t0 = gettime();
           if (in.nrhs == 1) {
