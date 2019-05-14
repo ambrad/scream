@@ -181,16 +181,15 @@ void run (const Input& in) {
 
   auto Am = create_mirror_view(A);
   auto Bm = create_mirror_view(B);
-# ifdef KOKKOS_ENABLE_OPENMP
-# pragma omp parallel for
-# endif
-  for (int i = 0; i < in.nprob; ++i) {
+  const auto fill = [&] (const int i) {
     const auto dl = subview(Am, i, 0, ALL(), ALL());
     const auto d  = subview(Am, i, 1, ALL(), ALL());
     const auto du = subview(Am, i, 2, ALL(), ALL());
     fill_tridiag_matrix(dl, d, du, nA, i);
     fill_data_matrix(subview(Bm, i, ALL(), ALL()), in.nrhs);
-  }
+  };
+  Kokkos::parallel_for(
+    Kokkos::RangePolicy<Kokkos::DefaultHostExecutionSpace>(0, in.nprob), fill);
   deep_copy(A, Am);
   deep_copy(B, Bm);
   deep_copy(Acopy, A);
