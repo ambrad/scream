@@ -2,6 +2,13 @@
 
 #include "tridiag_tests.hpp"
 
+extern "C" {
+  void tridiag_diagdom_bfb_a1x1(int n, scream::Real* dl, scream::Real* d,
+                                scream::Real* du, scream::Real* x);
+  void tridiag_diagdom_bfb_a1xm(int n, int nrhs, scream::Real* dl, scream::Real* d,
+                                scream::Real* du, scream::Real* x);
+}
+
 namespace scream {
 namespace tridiag {
 namespace test {
@@ -10,7 +17,7 @@ namespace correct {
 struct Solver {
   enum Enum { thomas_team_scalar, thomas_team_pack,
               thomas_scalar, thomas_pack,
-              cr_scalar, bfb,
+              cr_scalar, bfb, bfbf90,
               error };
 
   static std::string convert (Enum e) {
@@ -21,6 +28,7 @@ struct Solver {
     case thomas_pack: return "thomas_pack";
     case cr_scalar: return "cr_scalar";
     case bfb: return "bfb";
+    case bfbf90: return "bfbf90";
     default: scream_require_msg(false, "Not a valid solver: " << e);
     }
   }
@@ -32,6 +40,7 @@ struct Solver {
     if (s == "thomas_pack") return thomas_pack;
     if (s == "cr_scalar") return cr_scalar;
     if (s == "bfb") return bfb;
+    if (s == "bfbf90") return bfbf90;
     return error;
   }
 
@@ -40,7 +49,7 @@ struct Solver {
 
 Solver::Enum Solver::all[] = { thomas_team_scalar, thomas_team_pack,
                                thomas_scalar, thomas_pack,
-                               cr_scalar, bfb };
+                               cr_scalar, bfb, bfbf90 };
 
 struct TestConfig {
   using TeamLayout = Kokkos::LayoutRight;
@@ -210,8 +219,8 @@ struct Solve<true, APack, DataPack> {
             const auto d  = get_diag(As, 1);
             const auto du = get_diag(As, 2);
             scream::tridiag::cr(team, dl, d, du, Xs);
-          };
-          Kokkos::parallel_for(policy, f);
+          }; 
+         Kokkos::parallel_for(policy, f);
         }
       } else {
         const auto As = scalarize(A);
@@ -233,6 +242,30 @@ struct Solve<true, APack, DataPack> {
         scream::tridiag::bfb(team, dl, d, du, X);
       };
       Kokkos::parallel_for(policy, f);
+    } break;
+    case Solver::bfbf90: {
+      if (nprob == 1) {
+        if (nrhs == 1) {
+          const auto As = scalarize(A);
+          const auto Xs = scalarize(X);
+          const auto dl = get_diag(As, 0);
+          const auto d  = get_diag(As, 1);
+          const auto du = get_diag(As, 2);
+          const auto x  = get_x(Xs);
+          tridiag_diagdom_bfb_a1x1(d.extent_int(0), dl.data(), d.data(),
+                                   du.data(), x.data());
+        } else {
+          const auto As = scalarize(A);
+          const auto Xs = scalarize(X);
+          const auto dl = get_diag(As, 0);
+          const auto d  = get_diag(As, 1);
+          const auto du = get_diag(As, 2);
+          tridiag_diagdom_bfb_a1xm(d.extent_int(0), Xs.extent_int(1),
+                                   dl.data(), d.data(), du.data(), Xs.data());
+        }
+      } else {
+        scream_require_msg(false, "bfbf90 does not support nprob > 1");
+      }
     } break;
     default:
       scream_require_msg(false, "Same pack size: " << Solver::convert(tc.solver));
@@ -343,8 +376,11 @@ void run_test (const TestConfig& tc) {
           continue;
         if ((tc.solver == Solver::thomas_team_scalar ||
              tc.solver == Solver::thomas_scalar ||
-             tc.solver == Solver::cr_scalar) &&
+             tc.solver == Solver::cr_scalar ||
+             tc.solver == Solver::bfbf90) &&
             data_pack_size > 1)
+          continue;
+        if (tc.solver == Solver::bfbf90 && nprob > 1)
           continue;
         if (static_cast<int>(APack::n) != static_cast<int>(DataPack::n) && nprob > 1)
           continue;
