@@ -372,6 +372,28 @@ void fill (Data<APack, DataPack>& dt) {
   deep_copy(dt.X, dt.B);
 }
 
+template <typename APack, typename DataPack>
+Real relerr (Data<APack, DataPack>& dt) {
+  using Kokkos::create_mirror_view;
+  using Kokkos::deep_copy;
+  using Kokkos::subview;
+  using Kokkos::ALL;
+
+  const auto Acopym = create_mirror_view(dt.Acopy);
+  const auto As = scalarize(Acopym);
+  const auto dl = subview(As, 0, ALL(), ALL());
+  const auto d  = subview(As, 1, ALL(), ALL());
+  const auto du = subview(As, 2, ALL(), ALL());
+  const auto Xm = create_mirror_view(dt.X);
+  const auto Ym = create_mirror_view(dt.Y);
+  deep_copy(Acopym, dt.Acopy);
+  deep_copy(Xm, dt.X);
+  matvec(dl, d, du, scalarize(Xm), scalarize(Ym), dt.nprob, dt.nrhs);
+  const auto Bm = create_mirror_view(dt.B);
+  const auto re = reldif(scalarize(Bm), scalarize(Ym), dt.nrhs);
+  return re;
+}
+
 template <int A_pack_size, int data_pack_size>
 void run_test (const TestConfig& tc) {
   using namespace scream::tridiag::test;
@@ -430,20 +452,7 @@ void run_test (const TestConfig& tc) {
         Solve<A_pack_size == data_pack_size, APack, DataPack>
           ::run(tc, dt.A, dt.X, nprob, nrhs);
 
-        Real re; {
-          const auto Acopym = create_mirror_view(dt.Acopy);
-          const auto As = scalarize(Acopym);
-          const auto dl = subview(As, 0, ALL(), ALL());
-          const auto d  = subview(As, 1, ALL(), ALL());
-          const auto du = subview(As, 2, ALL(), ALL());
-          const auto Xm = create_mirror_view(dt.X);
-          const auto Ym = create_mirror_view(dt.Y);
-          deep_copy(Acopym, dt.Acopy);
-          deep_copy(Xm, dt.X);
-          matvec(dl, d, du, scalarize(Xm), scalarize(Ym), nprob, nrhs);
-          const auto Bm = create_mirror_view(dt.B);
-          re = reldif(scalarize(Bm), scalarize(Ym), nrhs);
-        }
+        const auto re = relerr(dt);
         const bool pass = re <= 50*std::numeric_limits<Real>::epsilon();
         if ( ! pass) {
           std::stringstream ss;
@@ -453,7 +462,6 @@ void run_test (const TestConfig& tc) {
           std::cout << "FAIL: " << ss.str() << "\n";
         }
         REQUIRE(pass);
-        //std::cout << "PASS: " << ss.str() << "\n";
       }
     }
   }
