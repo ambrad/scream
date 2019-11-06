@@ -333,6 +333,45 @@ struct Solve<false, APack, DataPack> {
   }
 };
 
+template <typename APack, typename DataPack>
+struct Data {
+  const int nprob, nrhs;
+  TridiagArray<APack> A, Acopy;
+  DataArray<DataPack> B, X, Y;
+
+  Data (const int nrow, const int nprob_, const int nrhs_)
+    : nprob(nprob_), nrhs(nrhs_),
+      A("A", 3, nrow, scream::pack::npack<APack>(nprob)),
+      Acopy("A", A.extent(0), A.extent(1), A.extent(2)),
+      B("B", nrow, scream::pack::npack<DataPack>(nrhs)),
+      X("X", B.extent(0), B.extent(1)),
+      Y("Y", X.extent(0), X.extent(1))
+  {}
+};
+
+template <typename APack, typename DataPack>
+void fill (Data<APack, DataPack>& dt) {
+  using Kokkos::create_mirror_view;
+  using Kokkos::deep_copy;
+  using Kokkos::subview;
+  using Kokkos::ALL;
+
+  const auto Am = create_mirror_view(dt.A);
+  const auto Bm = create_mirror_view(dt.B);
+  {
+    const auto As = scalarize(Am);
+    const auto dl = subview(As, 0, ALL(), ALL());
+    const auto d  = subview(As, 1, ALL(), ALL());
+    const auto du = subview(As, 2, ALL(), ALL());
+    fill_tridiag_matrix(dl, d, du, dt.nprob, dt.nrhs /* seed */);
+  }
+  fill_data_matrix(scalarize(Bm), dt.nrhs);
+  deep_copy(dt.A, Am);
+  deep_copy(dt.B, Bm);
+  deep_copy(dt.Acopy, dt.A);
+  deep_copy(dt.X, dt.B);
+}
+
 template <int A_pack_size, int data_pack_size>
 void run_test (const TestConfig& tc) {
   using namespace scream::tridiag::test;
@@ -385,44 +424,24 @@ void run_test (const TestConfig& tc) {
         if (static_cast<int>(APack::n) != static_cast<int>(DataPack::n) && nprob > 1)
           continue;
 
-        const int prob_npack = npack<APack>(nprob);
-        const int rhs_npack = npack<DataPack>(nrhs);
-
-        TridiagArray<APack>
-          A("A", 3, nrow, prob_npack),
-          Acopy("A", A.extent(0), A.extent(1), A.extent(2));
-        DataArray<DataPack>
-          B("B", nrow, rhs_npack), X("X", B.extent(0), B.extent(1)),
-          Y("Y", X.extent(0), X.extent(1));
-        const auto Am = create_mirror_view(A);
-        const auto Bm = create_mirror_view(B);
-        {
-          const auto As = scalarize(Am);
-          const auto dl = subview(As, 0, ALL(), ALL());
-          const auto d  = subview(As, 1, ALL(), ALL());
-          const auto du = subview(As, 2, ALL(), ALL());
-          fill_tridiag_matrix(dl, d, du, nprob, nrhs /* seed */);
-        }
-        fill_data_matrix(scalarize(Bm), nrhs);
-        deep_copy(A, Am);
-        deep_copy(B, Bm);
-        deep_copy(Acopy, A);
-        deep_copy(X, B);
+        Data<APack, DataPack> dt(nrow, nprob, nrhs);
+        fill(dt);
 
         Solve<A_pack_size == data_pack_size, APack, DataPack>
-          ::run(tc, A, X, nprob, nrhs);
+          ::run(tc, dt.A, dt.X, nprob, nrhs);
 
         Real re; {
-          const auto Acopym = create_mirror_view(Acopy);
+          const auto Acopym = create_mirror_view(dt.Acopy);
           const auto As = scalarize(Acopym);
           const auto dl = subview(As, 0, ALL(), ALL());
           const auto d  = subview(As, 1, ALL(), ALL());
           const auto du = subview(As, 2, ALL(), ALL());
-          const auto Xm = create_mirror_view(X);
-          const auto Ym = create_mirror_view(Y);
-          deep_copy(Acopym, Acopy);
-          deep_copy(Xm, X);
+          const auto Xm = create_mirror_view(dt.X);
+          const auto Ym = create_mirror_view(dt.Y);
+          deep_copy(Acopym, dt.Acopy);
+          deep_copy(Xm, dt.X);
           matvec(dl, d, du, scalarize(Xm), scalarize(Ym), nprob, nrhs);
+          const auto Bm = create_mirror_view(dt.B);
           re = reldif(scalarize(Bm), scalarize(Ym), nrhs);
         }
         const bool pass = re <= 50*std::numeric_limits<Real>::epsilon();
@@ -485,3 +504,9 @@ TEST_CASE("tridiag", "correctness") {
     scream::tridiag::test::correct::run_test<SCREAM_PACK_SIZE, SCREAM_PACK_SIZE>();
   }
 }
+
+#if 0
+TEST_CASE("tridiag", "bfb") {
+  scream::tridiag::test::correct::run_test<SCREAM_PACK_SIZE, SCREAM_PACK_SIZE>();
+}
+#endif
