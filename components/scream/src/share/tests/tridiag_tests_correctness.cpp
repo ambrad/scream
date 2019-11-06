@@ -10,7 +10,7 @@ namespace correct {
 struct Solver {
   enum Enum { thomas_team_scalar, thomas_team_pack,
               thomas_scalar, thomas_pack,
-              cr_scalar,
+              cr_scalar, bfb,
               error };
 
   static std::string convert (Enum e) {
@@ -20,6 +20,7 @@ struct Solver {
     case thomas_scalar: return "thomas_scalar";
     case thomas_pack: return "thomas_pack";
     case cr_scalar: return "cr_scalar";
+    case bfb: return "bfb";
     default: scream_require_msg(false, "Not a valid solver: " << e);
     }
   }
@@ -30,6 +31,7 @@ struct Solver {
     if (s == "thomas_scalar") return thomas_scalar;
     if (s == "thomas_pack") return thomas_pack;
     if (s == "cr_scalar") return cr_scalar;
+    if (s == "bfb") return bfb;
     return error;
   }
 
@@ -38,7 +40,7 @@ struct Solver {
 
 Solver::Enum Solver::all[] = { thomas_team_scalar, thomas_team_pack,
                                thomas_scalar, thomas_pack,
-                               cr_scalar };
+                               cr_scalar, bfb };
 
 struct TestConfig {
   using TeamLayout = Kokkos::LayoutRight;
@@ -223,6 +225,15 @@ struct Solve<true, APack, DataPack> {
         Kokkos::parallel_for(policy, f);
       }
     } break;
+    case Solver::bfb: {
+      const auto f = KOKKOS_LAMBDA (const MT& team) {
+        const auto dl = get_diags(A, 0);
+        const auto d  = get_diags(A, 1);
+        const auto du = get_diags(A, 2);
+        scream::tridiag::bfb(team, dl, d, du, X);
+      };
+      Kokkos::parallel_for(policy, f);
+    } break;
     default:
       scream_require_msg(false, "Same pack size: " << Solver::convert(tc.solver));
     }
@@ -270,6 +281,16 @@ struct Solve<false, APack, DataPack> {
           scream::tridiag::thomas(dl, d, du, X);
         };
         Kokkos::single(Kokkos::PerTeam(team), single);
+      };
+      Kokkos::parallel_for(policy, f);
+    } break;
+    case Solver::bfb: {
+      const auto As = scalarize(A);
+      const auto f = KOKKOS_LAMBDA (const MT& team) {
+        const auto dl = get_diags(As, 0);
+        const auto d  = get_diags(As, 1);
+        const auto du = get_diags(As, 2);
+        scream::tridiag::bfb(team, dl, d, du, X);
       };
       Kokkos::parallel_for(policy, f);
     } break;
