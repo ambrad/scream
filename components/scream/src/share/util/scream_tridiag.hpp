@@ -255,7 +255,8 @@ void thomas_amxm (DT* const dl, DT* d, DT* const du, XT* X,
 
 template <typename TridiagDiag>
 KOKKOS_INLINE_FUNCTION
-void bfb_thomas_factorize (TridiagDiag dl, TridiagDiag d, TridiagDiag du) {
+void bfb_thomas_factorize (TridiagDiag dl, TridiagDiag d, TridiagDiag du,
+                           typename std::enable_if<TridiagDiag::rank == 1>::type* = 0) {
   const int nrow = d.extent_int(0);
   assert(dl.extent_int(0) == nrow);
   assert(du.extent_int(0) == nrow);
@@ -268,19 +269,18 @@ void bfb_thomas_factorize (TridiagDiag dl, TridiagDiag d, TridiagDiag du) {
 template <typename TridiagDiag, typename DataArray>
 KOKKOS_INLINE_FUNCTION
 void bfb_thomas_solve (TridiagDiag dl, TridiagDiag d, TridiagDiag du,
-                       DataArray X) {
+                       DataArray X,
+                       typename std::enable_if<TridiagDiag::rank == 1>::type* = 0,
+                       typename std::enable_if<DataArray::rank == 1>::type* = 0) {
   const int nrow = d.extent_int(0);
-  const int nrhs = X.extent_int(1);
   assert(X.extent_int(0) == nrow);
   assert(dl.extent_int(0) == nrow);
   assert(du.extent_int(0) == nrow);
-  for (int j = 0; j < nrhs; ++j) {
-    for (int i = 1; i < nrow; ++i)
-      X(i,j) -= dl(i) * X(i-1,j);
-    X(nrow-1,j) /= d(nrow-1);
-    for (int i = nrow-1; i > 0; --i)
-      X(i-1,j) = (X(i-1,j) - du(i-1) * X(i,j)) / d(i-1);
-  }
+  for (int i = 1; i < nrow; ++i)
+    X(i) -= dl(i) * X(i-1);
+  X(nrow-1) /= d(nrow-1);
+  for (int i = nrow-1; i > 0; --i)
+    X(i-1) = (X(i-1) - du(i-1) * X(i)) / d(i-1);
 }
 } // namespace impl
 
