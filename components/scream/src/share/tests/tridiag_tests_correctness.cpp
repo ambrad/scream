@@ -394,17 +394,44 @@ Real relerr (Data<APack, DataPack>& dt) {
   return re;
 }
 
+template <typename Fn>
+void run_test_configs (Fn& fn) {
+  for (const auto solver : Solver::all) {
+    TestConfig tc;
+    tc.solver = solver;
+    if (scream::util::OnGpu<Kokkos::DefaultExecutionSpace>::value) {
+      tc.n_kokkos_vec = 1;
+      for (const int n_kokkos_thread : {128, 256, 512}) {
+        tc.n_kokkos_thread = n_kokkos_thread;
+        fn(tc);
+      }
+      tc.n_kokkos_vec = 32;
+      for (const int n_kokkos_thread : {4}) {
+        tc.n_kokkos_thread = n_kokkos_thread;
+        fn(tc);
+      }
+      tc.n_kokkos_vec = 8;
+      for (const int n_kokkos_thread : {16}) {
+        tc.n_kokkos_thread = n_kokkos_thread;
+        fn(tc);
+      }
+    } else {
+      const int concurrency = Kokkos::DefaultExecutionSpace::concurrency();
+      const int n_kokkos_thread = concurrency;
+      for (const int n_kokkos_vec : {1, 2}) {
+        tc.n_kokkos_thread = n_kokkos_thread;
+        tc.n_kokkos_vec = n_kokkos_vec;
+        fn(tc);
+      }
+    }
+  }
+}
+
 template <int A_pack_size, int data_pack_size>
-void run_test (const TestConfig& tc) {
+void run_property_test_on_config (const TestConfig& tc) {
   using namespace scream::tridiag::test;
 
-  using Kokkos::create_mirror_view;
-  using Kokkos::deep_copy;
-  using Kokkos::subview;
-  using Kokkos::ALL;
   using scream::Real;
-  using scream::pack::npack;
-  using scream::pack::scalarize;
   using APack = scream::pack::Pack<Real, A_pack_size>;
   using DataPack = scream::pack::Pack<Real, data_pack_size>;
 
@@ -468,36 +495,23 @@ void run_test (const TestConfig& tc) {
 }
 
 template <int A_pack_size, int data_pack_size>
-void run_test () {
-  for (const auto solver : Solver::all) {
-    TestConfig tc;
-    tc.solver = solver;
-    if (scream::util::OnGpu<Kokkos::DefaultExecutionSpace>::value) {
-      tc.n_kokkos_vec = 1;
-      for (const int n_kokkos_thread : {128, 256, 512}) {
-        tc.n_kokkos_thread = n_kokkos_thread;
-        run_test<A_pack_size, data_pack_size>(tc);
-      }
-      tc.n_kokkos_vec = 32;
-      for (const int n_kokkos_thread : {4}) {
-        tc.n_kokkos_thread = n_kokkos_thread;
-        run_test<A_pack_size, data_pack_size>(tc);
-      }
-      tc.n_kokkos_vec = 8;
-      for (const int n_kokkos_thread : {16}) {
-        tc.n_kokkos_thread = n_kokkos_thread;
-        run_test<A_pack_size, data_pack_size>(tc);
-      }
-    } else {
-      const int concurrency = Kokkos::DefaultExecutionSpace::concurrency();
-      const int n_kokkos_thread = concurrency;
-      for (const int n_kokkos_vec : {1, 2}) {
-        tc.n_kokkos_thread = n_kokkos_thread;
-        tc.n_kokkos_vec = n_kokkos_vec;
-        run_test<A_pack_size, data_pack_size>(tc);
-      }
-    }
-  }
+void run_property_test () {
+  run_test_configs(run_property_test_on_config<A_pack_size, data_pack_size>);
+}
+
+template <int A_pack_size, int data_pack_size>
+void run_bfb_test_on_config (const TestConfig& tc) {
+  using namespace scream::tridiag::test;
+
+  using scream::Real;
+  using APack = scream::pack::Pack<Real, A_pack_size>;
+  using DataPack = scream::pack::Pack<Real, data_pack_size>;
+
+}
+
+template <int A_pack_size, int data_pack_size>
+void run_bfb_test () {
+  run_test_configs(run_bfb_test_on_config<A_pack_size, data_pack_size>);
 }
 
 } // namespace correct
@@ -505,16 +519,18 @@ void run_test () {
 } // namespace tridiag
 } // namespace scream
 
-TEST_CASE("tridiag", "correctness") {
-  scream::tridiag::test::correct::run_test<1,1>();
+TEST_CASE("property", "tridiag") {
+  scream::tridiag::test::correct::run_property_test<1,1>();
   if (SCREAM_PACK_SIZE > 1) {
-    scream::tridiag::test::correct::run_test<1, SCREAM_PACK_SIZE>();
-    scream::tridiag::test::correct::run_test<SCREAM_PACK_SIZE, SCREAM_PACK_SIZE>();
+    scream::tridiag::test::correct::run_property_test<1, SCREAM_PACK_SIZE>();
+    scream::tridiag::test::correct::run_property_test<SCREAM_PACK_SIZE, SCREAM_PACK_SIZE>();
   }
 }
 
-#if 0
-TEST_CASE("tridiag", "bfb") {
-  scream::tridiag::test::correct::run_test<SCREAM_PACK_SIZE, SCREAM_PACK_SIZE>();
+TEST_CASE("bfb", "tridiag") {
+  scream::tridiag::test::correct::run_bfb_test<1,1>();
+  if (SCREAM_PACK_SIZE > 1) {
+    scream::tridiag::test::correct::run_bfb_test<1, SCREAM_PACK_SIZE>();
+    scream::tridiag::test::correct::run_bfb_test<SCREAM_PACK_SIZE, SCREAM_PACK_SIZE>();
+  }
 }
-#endif
