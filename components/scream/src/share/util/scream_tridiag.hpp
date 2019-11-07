@@ -597,7 +597,6 @@ template <typename TeamMember, typename TridiagDiag, typename DataArray>
 void bfb (const TeamMember& team,
           TridiagDiag dl, TridiagDiag d, TridiagDiag du, DataArray X,
           typename std::enable_if<TridiagDiag::rank == 1>::type* = 0) {
-  const int nrow = d.extent_int(0);
   const int nrhs = X.extent_int(1);
   assert(dl.extent_int(0) == nrow);
   assert(d. extent_int(0) == nrow);
@@ -618,7 +617,6 @@ void bfb (const TeamMember& team,
           typename std::enable_if<TridiagDiag::rank == 2>::type* = 0) {
   using Kokkos::subview;
   using Kokkos::ALL;
-  const int nrow = d.extent_int(0);
   const int nrhs = X.extent_int(1);
   if (nrhs > 1 && dl.extent_int(1) == 1) {
     bfb(team, subview(dl, ALL(), 0), subview(d, ALL(), 0), subview(du, ALL(), 0), X);
