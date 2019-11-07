@@ -9,8 +9,8 @@
 # define c_real c_float
 #endif
 
-! These routines are meant only for BFB testing. It solves a diagonally
-! domainant tridiagonal system A x = b, with (dl,d,du) the tridiags and x = b on
+! These routines are meant only for BFB testing. The solve a diagonally dominant
+! tridiagonal system A x = b, with (dl,d,du) the tridiags and x = b on
 ! input. See scream_tridag.hpp for performant solvers.
 
 module scream_tridag_bfb_mod
