@@ -244,28 +244,29 @@ struct Solve<true, APack, DataPack> {
       Kokkos::parallel_for(policy, f);
     } break;
     case Solver::bfbf90: {
+      const auto Am = create_mirror_view(A);
+      const auto Xm = create_mirror_view(X);
+      deep_copy(Am, A);
+      deep_copy(Xm, X);
+      const auto As = scalarize(Am);
+      const auto Xs = scalarize(Xm);
+      const auto dl = get_diag(As, 0);
+      const auto d  = get_diag(As, 1);
+      const auto du = get_diag(As, 2);
       if (nprob == 1) {
         if (nrhs == 1) {
-          const auto As = scalarize(A);
-          const auto Xs = scalarize(X);
-          const auto dl = get_diag(As, 0);
-          const auto d  = get_diag(As, 1);
-          const auto du = get_diag(As, 2);
           const auto x  = get_x(Xs);
           tridiag_diagdom_bfb_a1x1(d.extent_int(0), dl.data(), d.data(),
                                    du.data(), x.data());
         } else {
-          const auto As = scalarize(A);
-          const auto Xs = scalarize(X);
-          const auto dl = get_diag(As, 0);
-          const auto d  = get_diag(As, 1);
-          const auto du = get_diag(As, 2);
           tridiag_diagdom_bfb_a1xm(d.extent_int(0), Xs.extent_int(1),
                                    dl.data(), d.data(), du.data(), Xs.data());
         }
       } else {
         scream_require_msg(false, "bfbf90 does not support nprob > 1");
       }
+      deep_copy(A, Am);
+      deep_copy(X, Xm);
     } break;
     default:
       scream_require_msg(false, "Same pack size: " << Solver::convert(tc.solver));
