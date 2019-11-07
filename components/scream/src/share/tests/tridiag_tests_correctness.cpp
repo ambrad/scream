@@ -390,6 +390,7 @@ Real relerr (Data<APack, DataPack>& dt) {
   deep_copy(Xm, dt.X);
   matvec(dl, d, du, scalarize(Xm), scalarize(Ym), dt.nprob, dt.nrhs);
   const auto Bm = create_mirror_view(dt.B);
+  deep_copy(Bm, dt.B);
   const auto re = reldif(scalarize(Bm), scalarize(Ym), dt.nrhs);
   return re;
 }
