@@ -594,6 +594,7 @@ void cr (const TeamMember& team,
 }
 
 template <typename TeamMember, typename TridiagDiag, typename DataArray>
+KOKKOS_INLINE_FUNCTION
 void bfb (const TeamMember& team,
           TridiagDiag dl, TridiagDiag d, TridiagDiag du, DataArray X,
           typename std::enable_if<TridiagDiag::rank == 1>::type* = 0) {
@@ -612,6 +613,7 @@ void bfb (const TeamMember& team,
 }
 
 template <typename TeamMember, typename TridiagDiag, typename DataArray>
+KOKKOS_INLINE_FUNCTION
 void bfb (const TeamMember& team,
           TridiagDiag dl, TridiagDiag d, TridiagDiag du, DataArray X,
           typename std::enable_if<TridiagDiag::rank == 2>::type* = 0) {
