@@ -500,13 +500,56 @@ void run_property_test () {
 }
 
 template <int A_pack_size, int data_pack_size>
-void run_bfb_test_on_config (const TestConfig& tc) {
+void run_bfb_test_on_config (TestConfig& tc) {
   using namespace scream::tridiag::test;
 
   using scream::Real;
   using APack = scream::pack::Pack<Real, A_pack_size>;
   using DataPack = scream::pack::Pack<Real, data_pack_size>;
 
+  if (tc.solver != Solver::bfb) return;
+
+  const int nrows[] = {1,2,3,4,5, 8,10,16, 32,43, 63,64,65, 111,128,129, 2048};
+  const int nrhs_max = 60;
+  const int nrhs_inc = 11;
+
+  for (const int nrow : nrows) {
+    for (int nrhs = 1; nrhs <= nrhs_max; nrhs += nrhs_inc) {
+      for (const bool A_many : {false}) {
+        if (nrhs == 1 && A_many) continue;
+        const int nprob = A_many ? nrhs : 1;
+
+        if ((nrhs  == 1 && data_pack_size > 1) ||
+            (nprob == 1 && A_pack_size    > 1))
+          continue;
+
+        Data<APack, DataPack> dt1(nrow, nprob, nrhs);
+        fill(dt1);
+        tc.solver = Solver::bfb;
+        Solve<A_pack_size == data_pack_size, APack, DataPack>
+          ::run(tc, dt1.A, dt1.X, nprob, nrhs);
+
+        Data<APack, DataPack> dt2(nrow, nprob, nrhs);
+        fill(dt2);
+        tc.solver = Solver::bfbf90;
+        Solve<A_pack_size == data_pack_size, APack, DataPack>
+          ::run(tc, dt2.A, dt2.X, nprob, nrhs);
+
+        const auto X1s = scalarize(dt1.X);
+        const auto X2s = scalarize(dt2.X);
+        const auto X1 = create_mirror_view(X1s);
+        const auto X2 = create_mirror_view(X2s);
+        deep_copy(X1, X1s);
+        deep_copy(X2, X2s);
+
+        int nerr = 0; // don't blow up the assertion count
+        for (int i = 0; i < X1.extent_int(0); ++i)
+          for (int j = 0; j < X1.extent_int(1); ++j)
+            if (X1(i,j) != X2(i,j)) ++nerr;
+        REQUIRE(nerr == 0);
+      }
+    }
+  }
 }
 
 template <int A_pack_size, int data_pack_size>
@@ -529,8 +572,6 @@ TEST_CASE("property", "tridiag") {
 
 TEST_CASE("bfb", "tridiag") {
   scream::tridiag::test::correct::run_bfb_test<1,1>();
-  if (SCREAM_PACK_SIZE > 1) {
-    scream::tridiag::test::correct::run_bfb_test<1, SCREAM_PACK_SIZE>();
+  if (SCREAM_PACK_SIZE > 1)
     scream::tridiag::test::correct::run_bfb_test<SCREAM_PACK_SIZE, SCREAM_PACK_SIZE>();
-  }
 }
