@@ -1,4 +1,5 @@
 #include "share/util/scream_tridiag.hpp"
+#include "share/scream_types.hpp"
 
 using scream::Real;
 

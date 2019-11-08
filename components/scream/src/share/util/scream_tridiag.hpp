@@ -3,8 +3,7 @@
 
 #include <cassert>
 
-#include "share/scream_kokkos.hpp"
-#include "share/util/scream_utils.hpp"
+#include <Kokkos_Core.hpp>
 
 namespace scream {
 namespace tridiag {
@@ -137,6 +136,9 @@ int get_team_nthr (const Kokkos::Impl::CudaTeamMember& team) {
 #endif
 }
 #endif
+
+template <typename T> KOKKOS_INLINE_FUNCTION
+const T& min (const T& a, const T& b) { return a < b ? a : b; }
 
 // The caller must provide the team_barrier after this function returns before A
 // is accessed.
@@ -435,7 +437,7 @@ void cr (const TeamMember& team,
   const int nrhs = X.extent_int(1);
   const int tid = impl::get_thread_id_within_team(team);
   const int nthr = impl::get_team_nthr(team);
-  const int team_size = util::min(nrhs, nthr);
+  const int team_size = impl::min(nrhs, nthr);
   const int nteam = nthr / team_size;
   const int team_id = tid / team_size;
   const int team_tid = tid % team_size;
@@ -525,7 +527,7 @@ void cr (const TeamMember& team,
   assert(X. extent_int(0) == nrow);
   const int tid = impl::get_thread_id_within_team(team);
   const int nthr = impl::get_team_nthr(team);
-  const int team_size = util::min(nrhs, nthr);
+  const int team_size = impl::min(nrhs, nthr);
   const int nteam = nthr / team_size;
   const int team_id = tid / team_size;
   const int team_tid = tid % team_size;
