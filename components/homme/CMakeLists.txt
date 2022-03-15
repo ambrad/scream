@@ -420,7 +420,6 @@ ADD_SUBDIRECTORY(test/unit_tests)
 # Add libcompose, consisting of just C++ files, so we can build it just once for
 # all exes. It does not depend on compile-time sizes.
 if (HOMME_ENABLE_COMPOSE)
-  add_definitions(-DHOMME_ENABLE_COMPOSE)
   set (COMPOSE_LIBRARY_F90 "composef90")
   set (COMPOSE_LIBRARY ${COMPOSE_LIBRARY_F90})
   set (COMPOSE_PORT FALSE)

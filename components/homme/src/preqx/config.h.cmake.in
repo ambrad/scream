@@ -69,3 +69,6 @@
 /* When doing BFB testing, we occasionally must use modified code. */
 /* Use this flag to protect such code. */
 #cmakedefine HOMMEXX_BFB_TESTING
+
+/* Detect whether COMPOSE passive tracer transport is enabled */
+#cmakedefine HOMME_ENABLE_COMPOSE

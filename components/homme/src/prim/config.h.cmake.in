@@ -44,3 +44,5 @@
 /* Vertical OpenMP (within elements) */
 #cmakedefine COLUMN_OPENMP
 
+/* Detect whether COMPOSE passive tracer transport is enabled */
+#cmakedefine HOMME_ENABLE_COMPOSE

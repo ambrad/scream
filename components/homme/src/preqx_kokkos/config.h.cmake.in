@@ -63,3 +63,6 @@
 
 /* Whether to use OpenMP4 */
 #cmakedefine OMP4
+
+/* Detect whether COMPOSE passive tracer transport is enabled */
+#cmakedefine HOMME_ENABLE_COMPOSE

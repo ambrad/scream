@@ -38,3 +38,6 @@
 
 /* commit sha */
 #define HOMME_SHA1 "${LAST_GIT_COMMIT_SHA}"
+
+/* Detect whether COMPOSE passive tracer transport is enabled */
+#cmakedefine HOMME_ENABLE_COMPOSE

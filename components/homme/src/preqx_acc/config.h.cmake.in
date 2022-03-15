@@ -61,3 +61,5 @@
 /* ZOLTAN2 SUBPACKAGE OF TRILINOS  library */
 #cmakedefine01 TRILINOS_HAVE_ZOLTAN2
 
+/* Detect whether COMPOSE passive tracer transport is enabled */
+#cmakedefine HOMME_ENABLE_COMPOSE
