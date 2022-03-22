@@ -30,6 +30,15 @@ void set_views (const SetView<double***>& spheremp,
   const auto nel = spheremp.extent_int(0);
   const auto np2 = spheremp.extent_int(1)*spheremp.extent_int(1);
   const auto nlev = dp.extent_int(3);
+  if (q.extent_int(1) != ta.qsize) {
+    // HommeDynamics in the EAMxx driver sets qsize only after prim_init1
+    // returns, so the value set in prim_init1 may not be correct.
+    *const_cast<Int*>(&ta.qsize) = q.extent_int(1);
+    ta.q_min = decltype(ta.q_min)("q_min", ta.nelemd, ta.qsize, ta.np2, ta.nlev);
+    ta.q_max = decltype(ta.q_max)("q_max", ta.nelemd, ta.qsize, ta.np2, ta.nlev);
+    auto& cm = *get_isl_mpi_singleton();
+    *const_cast<Int*>(&cm.qsize) = ta.qsize;
+  }
   ta.spheremp = View<Real**>(spheremp.data(), nel, np2);
   ta.dp = View<Real***>(dp.data(), nel, np2, nlev);
   ta.dp3d = View<Real****>(dp3d.data(), nel, dp3d.extent_int(1), np2, nlev);
