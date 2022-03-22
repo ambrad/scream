@@ -99,9 +99,6 @@ contains
     use prim_driver_base, only: prim_init1_cleanup
     use edge_mod_base,    only: FreeEdgeBuffer
 
-    ! Cleanup the tmp stuff used in prim_init1_geometry
-    call prim_init1_cleanup()
-
     ! Cleanup edge used in get_my_dyn_data
     call FreeEdgeBuffer(edge)
   end subroutine cleanup_grid_init_data

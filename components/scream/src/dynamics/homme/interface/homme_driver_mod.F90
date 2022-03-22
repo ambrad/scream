@@ -22,7 +22,8 @@ contains
   subroutine prim_init_data_structures_f90 () bind(c)
     use prim_driver_mod,      only: prim_create_c_data_structures, prim_init_kokkos_functors
     use prim_driver_base,     only: prim_init1_geometry, prim_init1_elem_arrays, &
-                                    prim_init1_cleanup, prim_init1_buffers
+                                    prim_init1_cleanup, prim_init1_buffers, &
+                                    prim_init1_compose
     use prim_cxx_driver_base, only: setup_element_pointers
     use derivative_mod_base,  only: derivinit
     use time_mod,             only: TimeLevel_init
@@ -43,11 +44,6 @@ contains
     call derivinit(deriv)
 
     ! ==================================
-    ! Initialize the buffers for exchanges
-    ! ==================================
-    call prim_init1_buffers(elem,par)
-
-    ! ==================================
     ! Initialize element pointers
     ! ==================================
     call setup_element_pointers(elem)
@@ -56,6 +52,17 @@ contains
     ! Initialize element arrays (fluxes and state)
     ! ==================================
     call prim_init1_elem_arrays(elem,par)
+
+    call prim_init1_compose(par,elem)
+
+    ! Cleanup the tmp stuff created in prim_init1_geometry and optionally used
+    ! up to this point.
+    call prim_init1_cleanup()
+
+    ! ==================================
+    ! Initialize the buffers for exchanges
+    ! ==================================
+    call prim_init1_buffers(elem,par)
 
     ! Initialize the time levels
     call TimeLevel_init(tl)
