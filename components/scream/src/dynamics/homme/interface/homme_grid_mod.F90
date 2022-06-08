@@ -52,7 +52,10 @@ contains
     !
     integer (kind=c_int), pointer :: pg_types(:)
 
+    write(0,*) 'amb> init_grids_f90'
     call c_f_pointer(pg_types_ptr, pg_types, [num_pg_types])
+
+    write(0,*) 'amb> init_grids_f90 pg_types',pg_types(1:num_pg_types)
 
     ! We don't expect this to be called twice
     call check_grids_inited(.false.)
@@ -64,6 +67,7 @@ contains
     call phys_grids_init (pg_types)
 
     is_geometry_inited = .true.
+    write(0,*) 'amb> init_grids_f90 done'
   end subroutine init_grids_f90
 
   subroutine cleanup_grid_init_data_f90 () bind(c)

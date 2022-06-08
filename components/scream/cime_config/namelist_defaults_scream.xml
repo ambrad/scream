@@ -148,6 +148,7 @@ tweaking their $case/namelist_scream.xml file.
     <!-- Basic options for each "physics" atm process -->
     <physics_proc_base inherit="atm_proc_base">
       <Grid>Physics GLL</Grid>
+      <Grid hgrid=".*pg2">Physics PG2</Grid>
     </physics_proc_base>
 
     <!-- Homme dynamics -->
@@ -218,6 +219,7 @@ tweaking their $case/namelist_scream.xml file.
   <Grids__Manager>
     <Type>Dynamics Driven</Type>
     <Reference__Grid>Physics GLL</Reference__Grid>
+    <Reference__Grid hgrid=".*pg2">Physics PG2</Reference__Grid>
     <Dynamics__Namelist__File__Name>./data/namelist.nl</Dynamics__Namelist__File__Name>
   </Grids__Manager>
 
@@ -235,7 +237,7 @@ tweaking their $case/namelist_scream.xml file.
 
   <!-- List of yaml files containing I/O output specs -->
   <Scorpio>
-    <Output__YAML__Files type="array(string)">data/scream_default_output.yaml</Output__YAML__Files>
+    <Output__YAML__Files type="array(string)">data/scream_output.yaml</Output__YAML__Files>
     <Model__Restart>
       <Casename>./${CASE}.scream</Casename>
       <Output__Control>
@@ -252,7 +254,7 @@ tweaking their $case/namelist_scream.xml file.
   <!-- Debug options for scream -->
   <Debug>
     <Atmosphere__DAG__Verbosity__Level>0</Atmosphere__DAG__Verbosity__Level>
-    <Atm__Log__Level valid_values="trace,debug,info,warn,error">info</Atm__Log__Level>
+    <Atm__Log__Level valid_values="trace,debug,info,warn,error">trace</Atm__Log__Level>
   </Debug>
 
   <!--

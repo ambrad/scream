@@ -99,6 +99,8 @@ contains
     logical :: do_gll
     character(2) :: str
 
+    write(0,*) 'amb> phys_grids_init'
+
     fvN = -1
     do_gll = .false.
     do i=1, size(pg_types)
@@ -115,7 +117,7 @@ contains
         call abortmp("Error! Physics grid type '"//str//"' not supported.")
       endif
 
-      if (pgN .gt. 0) then
+      if (pgN > 0) then
         if (fvN .ne. -1 .and. fvN .ne. pgN) then
           call abortmp("Error! Only ONE finite volume phys grid can be enabled.")
         endif
@@ -124,6 +126,8 @@ contains
         do_gll = .true.
       endif
     enddo
+    
+    write(0,*) 'amb> phys_grids_init',do_gll,fvN
 
     ! Compute elem-related quantities, which are common to all phys grids
 
@@ -387,6 +391,9 @@ contains
     integer :: ie, icol, idof, proc, elem_gid, elem_offset
     integer, allocatable :: exclusive_scan_dofs_per_elem(:)
 
+    write(0,*) 'amb> compute_global_dofs'
+
+    ! This routine's calculations are independent of physics grid type.
     allocate(exclusive_scan_dofs_per_elem(nelem))
     allocate(pg%g_dofs(get_num_global_columns(pg%pgN)))
 
@@ -395,36 +402,33 @@ contains
       exclusive_scan_dofs_per_elem(ie) = exclusive_scan_dofs_per_elem(ie-1) + pg%g_dofs_per_elem(ie-1)
     enddo
 
-    if (pg%pgN .gt. 0) then
-      ! TODO
-      call abortmp ("Error! Finite volume physics grid not yet implemented in scream.")
-    else
-      ! physics is on GLL grid
-      allocate (pg%g_dofs_offsets(par%nprocs))
+    allocate (pg%g_dofs_offsets(par%nprocs))
 
-      pg%g_dofs_offsets(1)=0
-      do proc=2,par%nprocs
-        pg%g_dofs_offsets(proc) = pg%g_dofs_offsets(proc-1) + pg%g_dofs_per_rank(proc-1)
-      enddo
+    pg%g_dofs_offsets(1)=0
+    do proc=2,par%nprocs
+      pg%g_dofs_offsets(proc) = pg%g_dofs_offsets(proc-1) + pg%g_dofs_per_rank(proc-1)
+    enddo
 
-      idof = 1
-      do proc=1,par%nprocs
-        elem_offset = g_elem_offsets(proc)
-        do ie=1,g_elem_per_rank(proc)
-          elem_gid = g_elem_gids(elem_offset+ie)
-          do icol=1,pg%g_dofs_per_elem(elem_gid)
-            pg%g_dofs(idof) = exclusive_scan_dofs_per_elem(elem_gid)+icol
-            idof = idof+1
-          enddo
+    idof = 1
+    do proc=1,par%nprocs
+      elem_offset = g_elem_offsets(proc)
+      do ie=1,g_elem_per_rank(proc)
+        elem_gid = g_elem_gids(elem_offset+ie)
+        do icol=1,pg%g_dofs_per_elem(elem_gid)
+          pg%g_dofs(idof) = exclusive_scan_dofs_per_elem(elem_gid)+icol
+          idof = idof+1
         enddo
       enddo
-    endif
+    enddo
+
+    write(0,*) 'amb> compute_global_dofs done'
   end subroutine compute_global_dofs
 
   subroutine compute_global_area(pg)
     use dof_mod,           only: UniquePoints
     use dimensions_mod,    only: np, nelemd
     use homme_context_mod, only: elem, par, iam, masterproc
+    use gllfvremap_mod,    only: gfr_f_get_area
     !
     ! Input(s)
     !
@@ -434,23 +438,33 @@ contains
     !
     real(kind=c_double), pointer :: area_l(:)
     real(kind=c_double), dimension(np,np)  :: areaw
-    integer :: ie, offset, start, ierr, ncols
+    integer :: ie, offset, start, ierr, ncols, i, j, k
 
+    write(0,*) 'amb> compute_global_area'
     if (masterproc) then
       write(iulog,*) 'INFO: Non-scalable action: Computing global area in SE dycore.'
     endif
 
-    if (pg%pgN .gt. 0) then
-      ! TODO
-      call abortmp ("Error! Finite volume physics grid not yet implemented in scream.")
+    allocate(pg%g_area(get_num_global_columns(pg%pgN)))
+
+    offset = pg%g_dofs_offsets(iam+1)
+
+    ncols = get_num_local_columns(pg%pgN)
+    area_l => pg%g_area(offset+1 : offset+ncols)
+
+    if (pg%pgN > 0) then
+       start = 0
+       do ie=1,nelemd
+          do j = 1,pg%pgN
+             do i = 1,pg%pgN
+                k = start + (j-1)*pg%pgN + i
+                area_l(k) = gfr_f_get_area(ie, i, j)
+             end do
+          end do
+          start = start + pg%pgN*pg%pgN
+       end do
     else
       ! physics is on GLL grid
-      allocate(pg%g_area(get_num_global_columns(pg%pgN)))
-
-      offset = pg%g_dofs_offsets(iam+1)
-
-      ncols = get_num_local_columns(pg%pgN)
-      area_l => pg%g_area(offset+1 : offset+ncols)
       start = 1
       do ie=1,nelemd
         areaw = 1.0_c_double / elem(ie)%rspheremp(:,:)
@@ -458,21 +472,23 @@ contains
         call UniquePoints(elem(ie)%idxP, areaw, area_l(start:start+ncols-1))
         start = start + ncols
       enddo
-
-      ncols = get_num_local_columns(pg%pgN)
-      ! Note: using MPI_IN_PLACE,0,MPI_DATATYPE_NULL for the src array
-      !       informs MPI that src array is aliasing the dst one, so
-      !       MPI will grab the src part from dst, using the offsets info
-      call MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &
-                          pg%g_area, pg%g_dofs_per_rank, pg%g_dofs_offsets, MPIreal_t, &
-                          par%comm, ierr)
     endif
+
+    ncols = get_num_local_columns(pg%pgN)
+    ! Note: using MPI_IN_PLACE,0,MPI_DATATYPE_NULL for the src array
+    !       informs MPI that src array is aliasing the dst one, so
+    !       MPI will grab the src part from dst, using the offsets info
+    call MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &
+                        pg%g_area, pg%g_dofs_per_rank, pg%g_dofs_offsets, MPIreal_t, &
+                        par%comm, ierr)
+    write(0,*) 'amb> compute_global_area done'
   end subroutine compute_global_area
 
   subroutine compute_global_coords(pg)
     use dimensions_mod,    only: nelemd
     use dof_mod,           only: UniqueCoords
     use homme_context_mod, only: elem, par, iam, masterproc
+    use gllfvremap_mod,    only: gfr_f_get_latlon
     !
     ! Input(s)
     !
@@ -481,26 +497,35 @@ contains
     ! Local(s)
     !
     real(kind=c_double), pointer :: lat_l(:), lon_l(:)
-    integer  :: ncols, ie, offset, start, ierr
+    integer  :: ncols, ie, offset, start, ierr, i, j, k
 
+    write(0,*) 'amb> compute_global_coords ngcol,nlcol',get_num_global_columns(pg%pgN),get_num_local_columns(pg%pgN)
     if (masterproc) then
       write(iulog,*) 'INFO: Non-scalable action: Computing global coords in SE dycore.'
     end if
 
+    allocate(pg%g_lat(get_num_global_columns(pg%pgN)))
+    allocate(pg%g_lon(get_num_global_columns(pg%pgN)))
+
+    offset = pg%g_dofs_offsets(iam+1)
+
+    ncols = get_num_local_columns(pg%pgN)
+    lat_l => pg%g_lat(offset+1 : offset+ncols)
+    lon_l => pg%g_lon(offset+1 : offset+ncols)
+
     if (pg%pgN > 0) then
-      ! TODO
-      call abortmp("Error! Finite volume physics grid not yet implemented.")
+       start = 0
+       do ie=1,nelemd
+          do j = 1,pg%pgN
+             do i = 1,pg%pgN
+                k = start + (j-1)*pg%pgN + i
+                call gfr_f_get_latlon(ie, i, j, lat_l(k), lon_l(k))
+             end do
+          end do
+          start = start + pg%pgN*pg%pgN
+       end do
     else
-      allocate(pg%g_lat(get_num_global_columns(pg%pgN)))
-      allocate(pg%g_lon(get_num_global_columns(pg%pgN)))
-
       ! physics is on GLL grid
-
-      offset = pg%g_dofs_offsets(iam+1)
-
-      ncols = get_num_local_columns(pg%pgN)
-      lat_l => pg%g_lat(offset+1 : offset+ncols)
-      lon_l => pg%g_lon(offset+1 : offset+ncols)
       start = 1
       do ie=1,nelemd
         ncols = elem(ie)%idxP%NumUniquePts
@@ -509,23 +534,24 @@ contains
                           lon_l(start:start+ncols-1))
         start = start + ncols
       enddo
-
-      ncols = get_num_local_columns(pg%pgN)
-
-      ! Note: using MPI_IN_PLACE,0,MPI_DATATYPE_NULL for the src array
-      !       informs MPI that src array is aliasing the dst one, so
-      !       MPI will grab the src part from dst, using the offsets info
-      call MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &
-                          pg%g_lat, pg%g_dofs_per_rank, pg%g_dofs_offsets, MPIreal_t, &
-                          par%comm, ierr)
-      call MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &
-                          pg%g_lon, pg%g_dofs_per_rank, pg%g_dofs_offsets, MPIreal_t, &
-                          par%comm, ierr)
     endif
+
+    ncols = get_num_local_columns(pg%pgN)
+
+    ! Note: using MPI_IN_PLACE,0,MPI_DATATYPE_NULL for the src array
+    !       informs MPI that src array is aliasing the dst one, so
+    !       MPI will grab the src part from dst, using the offsets info
+    call MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &
+                        pg%g_lat, pg%g_dofs_per_rank, pg%g_dofs_offsets, MPIreal_t, &
+                        par%comm, ierr)
+    call MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &
+                        pg%g_lon, pg%g_dofs_per_rank, pg%g_dofs_offsets, MPIreal_t, &
+                        par%comm, ierr)
+    write(0,*) 'amb> compute_global_coords done'
   end subroutine compute_global_coords
 
   subroutine phys_grid_init (pgN)
-    use gllfvremap_mod,    only: gfr_init
+    use gllfvremap_mod,    only: gfr_init, gfr_init_hxx
     use homme_context_mod, only: elem, par
     use dimensions_mod,    only: nelem, nelemd
     !
@@ -540,6 +566,8 @@ contains
     character(2) :: str
     type(pg_specs_t), pointer :: pg
 
+    write(0,*) 'amb> phys_grid_init',pgN
+
     pg => pg_specs(pgN)
 
     if (pg%inited) then
@@ -552,7 +580,9 @@ contains
     pg%pgN = pgN
 
     if (pgN>0) then
-      call gfr_init(par, elem, pgN)
+       write(0,*) 'amb> call gfr_init'
+       call gfr_init(par, elem, pgN)
+       write(0,*) 'amb> call gfr_init returned'
     endif
 
     ! Gather the number of unique cols on each rank
@@ -569,11 +599,17 @@ contains
     !       dofs_per_elem into g_dofs_per_elem, ordering by elem GID instead.
     !
     allocate(dofs_per_elem(nelem))
-    do ie=1,nelemd
-      dofs_per_elem(g_elem_offsets(par%rank+1)+ie) = elem(ie)%idxP%NumUniquePts
-    enddo
-    call MPI_Allgatherv( MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &
-                         dofs_per_elem, g_elem_per_rank, g_elem_offsets, MPIinteger_t, par%comm, ierr)
+    if (pgN>0) then
+       do ie=1,nelem
+          dofs_per_elem(ie) = pgN*pgN
+       end do
+    else
+       do ie=1,nelemd
+          dofs_per_elem(g_elem_offsets(par%rank+1)+ie) = elem(ie)%idxP%NumUniquePts
+       enddo
+       call MPI_Allgatherv( MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &
+            dofs_per_elem, g_elem_per_rank, g_elem_offsets, MPIinteger_t, par%comm, ierr)
+    end if
 
     allocate(pg%g_dofs_per_elem(nelem))
     do proc=1,par%nprocs
@@ -587,6 +623,8 @@ contains
     call compute_global_dofs (pg)
     call compute_global_coords (pg)
     call compute_global_area (pg)
+
+    write(0,*) 'amb> phys_grid_init done',pgN
   end subroutine phys_grid_init
 
 
