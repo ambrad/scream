@@ -96,10 +96,16 @@ protected:
   // Some helper fields.
   std::map<std::string,Field>  m_helper_fields;
 
-  // Remapper for inputs and outputs, plus a special one for initial conditions
+  // Remapper for inputs and outputs, plus a special one for initial
+  // conditions. These are used when the physics grid is the continuous GLL
+  // point grid.
   std::shared_ptr<AbstractRemapper>   m_p2d_remapper;
   std::shared_ptr<AbstractRemapper>   m_d2p_remapper;
   std::shared_ptr<AbstractRemapper>   m_ic_remapper;
+  // For the finite volume (FV) physics grid, sometimes referred to as
+  // "physgrid", we use the remapper that Homme provides. Store N in pgN; if the
+  // grid is not FV, then this variable is set to -1.
+  int m_phys_grid_pgN;
 
   // The dynamics and reference grids
   std::shared_ptr<const AbstractGrid>  m_dyn_grid;

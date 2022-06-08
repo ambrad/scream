@@ -14,6 +14,7 @@
 #include "CaarFunctor.hpp"
 #include "VerticalRemapManager.hpp"
 #include "HyperviscosityFunctor.hpp"
+#include "GllFvRemap.hpp"
 #include "TimeLevel.hpp"
 #include "Tracers.hpp"
 #include "mpi/ConnectivityHelpers.hpp"
@@ -45,8 +46,26 @@
 #include "ekat/ekat_pack_utils.hpp"
 #include "ekat/ekat_workspace.hpp"
 
+extern "C" void gfr_init_hxx();
+
 namespace scream
 {
+
+// Parse a name of the form "Physics PGN". Return -1 if not an FV physics grid
+// name, otherwise N in pgN.
+static int get_phys_grid_fv_param (const std::string& grid_name) {
+  if (grid_name.size() < 11) return -1;
+  if (grid_name.substr(0, 10) != "Physics PG") return -1;
+  const auto param = grid_name.substr(10, std::string::npos);
+  int N;
+  std::istringstream ss(param);
+  try {
+    ss >> N;
+  } catch (...) {
+    N = -1;
+  }
+  return N;
+}
 
 HommeDynamics::HommeDynamics (const ekat::Comm& comm, const ekat::ParameterList& params)
   : AtmosphereProcess(comm, params)
@@ -68,6 +87,8 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
   m_dyn_grid = grids_manager->get_grid(dgn);
   m_ref_grid = grids_manager->get_reference_grid();
   const auto& rgn = m_ref_grid->name();
+
+  m_phys_grid_pgN = get_phys_grid_fv_param(rgn);
 
   // Init prim structures
   // TODO: they should not be inited yet; should we error out if they are?
@@ -204,6 +225,7 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
     add_internal_field (m_helper_fields.at("w_int_dyn").subfield(1,tl.n0,true));
   }
 
+  if (m_phys_grid_pgN < 0) {
   // Dynamics backs out tendencies from the states, and passes those to Homme.
   // After Homme completes, we remap the updated state to the ref grid.
   // Thus, is more convenient to use two different remappers: the pd remapper
@@ -214,6 +236,10 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
 
   // Create separate remapper for Initial Conditions
   m_ic_remapper = grids_manager->create_remapper(m_ref_grid,m_dyn_grid);
+  } else {
+    // We do not use any objects of type AbstractRemapper. Instead, we call
+    // Homme's remapper routines.
+  }
 }
 
 size_t HommeDynamics::requested_buffer_size_in_bytes() const
@@ -236,6 +262,8 @@ size_t HommeDynamics::requested_buffer_size_in_bytes() const
                           params.time_step_type==TimeStepType::ttype9_imex ||
                           params.time_step_type==TimeStepType::ttype10_imex  );
 
+  const bool need_gfr = m_phys_grid_pgN > 0;
+
   // Request buffer sizes in FunctorsBuffersManager and then
   // return the total bytes using the calculated buffer size.
   auto& fbm  = c.create_if_not_there<FunctorsBuffersManager>();
@@ -249,6 +277,12 @@ size_t HommeDynamics::requested_buffer_size_in_bytes() const
     // Create dirk functor only if needed
     auto& dirk = c.create_if_not_there<DirkFunctor>(num_elems);
     fbm.request_size(dirk.requested_buffer_size());
+  }
+  if (need_gfr) {
+    auto& gfr = c.create_if_not_there<GllFvRemap>();
+    gfr.reset(params);
+    gfr_init_hxx();
+    fbm.request_size(gfr.requested_buffer_size());
   }
 
   return fbm.allocated_size()*sizeof(Real);
