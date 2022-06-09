@@ -218,7 +218,8 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
   }
   
   // Create separate remapper for Initial Conditions
-  m_ic_remapper = grids_manager->create_remapper(m_ref_grid,m_dyn_grid);
+  auto dyn_cg_grid = grids_manager->get_grid("Physics GLL");
+  m_ic_remapper = grids_manager->create_remapper(dyn_cg_grid,m_dyn_grid);
 }
 
 size_t HommeDynamics::requested_buffer_size_in_bytes() const

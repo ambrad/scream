@@ -260,6 +260,7 @@ build_physics_grid (const std::string& name) {
 
     m_grids[name] = phys_grid;
   }
+  fprintf(stderr,"amb> DDGM::build_physics_grid %s done\n",name.c_str());
 }
 
 void DynamicsDrivenGridsManager::
