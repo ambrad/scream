@@ -69,6 +69,23 @@ protected:
   void copy_dyn_states_to_all_timelevels ();
 
   void initialize_impl (const RunType run_type);
+
+  // fv_phys refers to the horizontal finite volume (FV) grid for column
+  // parameterizations nested inside the horizontal element grid. The grid names
+  // are "Physics PGN", where N in practice is 2. The name of each routine is
+  // fv_phys_X, where X is the name of an existing HommeDynamics routine. If
+  // fv_phys is not being used, each of these routines does an immediate exit,
+  // so it's OK to always call the routine.
+  void fv_phys_set_grids();
+  void fv_phys_requested_buffer_size_in_bytes() const;
+  void fv_phys_initialize_impl();
+  void fv_phys_pre_process();
+  void fv_phys_post_process();
+  void fv_phys_restart_homme_state();
+  void fv_phys_initialize_homme_state();
+  // Fast boolean function returning whether Physics PGN is being used.
+  bool fv_phys_active() const;
+  
 protected:
   void run_impl        (const int dt);
   void finalize_impl   ();

@@ -8,13 +8,13 @@
 #include "SimulationParams.hpp"
 #include "ElementsForcing.hpp"
 #include "EulerStepFunctor.hpp"
+#include "ComposeTransport.hpp"
 #include "Diagnostics.hpp"
 #include "DirkFunctor.hpp"
 #include "ForcingFunctor.hpp"
 #include "CaarFunctor.hpp"
 #include "VerticalRemapManager.hpp"
 #include "HyperviscosityFunctor.hpp"
-#include "GllFvRemap.hpp"
 #include "TimeLevel.hpp"
 #include "Tracers.hpp"
 #include "mpi/ConnectivityHelpers.hpp"
@@ -46,29 +46,11 @@
 #include "ekat/ekat_pack_utils.hpp"
 #include "ekat/ekat_workspace.hpp"
 
-extern "C" void gfr_init_hxx();
-
 namespace scream
 {
 
-// Parse a name of the form "Physics PGN". Return -1 if not an FV physics grid
-// name, otherwise N in pgN.
-static int get_phys_grid_fv_param (const std::string& grid_name) {
-  if (grid_name.size() < 11) return -1;
-  if (grid_name.substr(0, 10) != "Physics PG") return -1;
-  const auto param = grid_name.substr(10, std::string::npos);
-  int N;
-  std::istringstream ss(param);
-  try {
-    ss >> N;
-  } catch (...) {
-    N = -1;
-  }
-  return N;
-}
-
 HommeDynamics::HommeDynamics (const ekat::Comm& comm, const ekat::ParameterList& params)
-  : AtmosphereProcess(comm, params)
+  : AtmosphereProcess(comm, params), m_phys_grid_pgN(-1)
 {
   // This class needs Homme's context, so register as a user
   HommeContextUser::singleton().add_user();
@@ -88,7 +70,7 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
   m_ref_grid = grids_manager->get_reference_grid();
   const auto& rgn = m_ref_grid->name();
 
-  m_phys_grid_pgN = get_phys_grid_fv_param(rgn);
+  fv_phys_set_grids();
 
   // Init prim structures
   // TODO: they should not be inited yet; should we error out if they are?
@@ -225,7 +207,7 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
     add_internal_field (m_helper_fields.at("w_int_dyn").subfield(1,tl.n0,true));
   }
 
-  if (m_phys_grid_pgN < 0) {
+  if (not fv_phys_active()) {
   // Dynamics backs out tendencies from the states, and passes those to Homme.
   // After Homme completes, we remap the updated state to the ref grid.
   // Thus, is more convenient to use two different remappers: the pd remapper
@@ -252,7 +234,6 @@ size_t HommeDynamics::requested_buffer_size_in_bytes() const
   const auto num_elems = c.get<Elements>().num_elems();
 
   auto& caar = c.create_if_not_there<CaarFunctor>(num_elems,params);
-  auto& esf  = c.create_if_not_there<EulerStepFunctor>(num_elems);
   auto& hvf  = c.create_if_not_there<HyperviscosityFunctor>(num_elems, params);
   auto& ff   = c.create_if_not_there<ForcingFunctor>(num_elems, num_elems, params.qsize);
   auto& diag = c.create_if_not_there<Diagnostics> (num_elems,params.theta_hydrostatic_mode);
@@ -262,28 +243,29 @@ size_t HommeDynamics::requested_buffer_size_in_bytes() const
                           params.time_step_type==TimeStepType::ttype9_imex ||
                           params.time_step_type==TimeStepType::ttype10_imex  );
 
-  const bool need_gfr = m_phys_grid_pgN > 0;
-
   // Request buffer sizes in FunctorsBuffersManager and then
   // return the total bytes using the calculated buffer size.
   auto& fbm  = c.create_if_not_there<FunctorsBuffersManager>();
   fbm.request_size(caar.requested_buffer_size());
-  fbm.request_size(esf.requested_buffer_size());
   fbm.request_size(hvf.requested_buffer_size());
   fbm.request_size(diag.requested_buffer_size());
   fbm.request_size(ff.requested_buffer_size());
   fbm.request_size(vrm.requested_buffer_size());
+
+  // Functors that whose creation depends on the Homme namelist.
+  if (params.transport_alg == 0) {
+    auto& esf = c.create_if_not_there<EulerStepFunctor>(num_elems);
+    fbm.request_size(esf.requested_buffer_size());
+  } else {
+    auto& ct = c.create_if_not_there<ComposeTransport>();
+    fbm.request_size(ct.requested_buffer_size());
+  }
   if (need_dirk) {
     // Create dirk functor only if needed
     auto& dirk = c.create_if_not_there<DirkFunctor>(num_elems);
     fbm.request_size(dirk.requested_buffer_size());
   }
-  if (need_gfr) {
-    auto& gfr = c.create_if_not_there<GllFvRemap>();
-    gfr.reset(params);
-    gfr_init_hxx();
-    fbm.request_size(gfr.requested_buffer_size());
-  }
+  fv_phys_requested_buffer_size_in_bytes();
 
   return fbm.allocated_size()*sizeof(Real);
 }
