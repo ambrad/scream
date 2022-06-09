@@ -39,22 +39,30 @@ bool HommeDynamics::fv_phys_active () const {
 }
 
 void HommeDynamics::fv_phys_set_grids () {
+  fprintf(stderr,"amb> fv_phys_set_grids\n");
   m_phys_grid_pgN = get_phys_grid_fv_param(m_ref_grid->name());
+  fprintf(stderr,"amb> fv_phys_set_grids done\n");
 }
 
 void HommeDynamics::fv_phys_requested_buffer_size_in_bytes () const {
+  fprintf(stderr,"amb> fv_phys_requested_buffer_size_in_bytes\n");
   if (not fv_phys_active()) return;
   using namespace Homme;
   auto& c = Context::singleton();
   auto& gfr = c.create_if_not_there<GllFvRemap>();
   gfr.reset(c.get<SimulationParams>());
+  fprintf(stderr,"amb> calling gfr_init_hxx\n");
   gfr_init_hxx();
+  fprintf(stderr,"amb> gfr_init_hxx returned\n");
   auto& fbm  = c.create_if_not_there<FunctorsBuffersManager>();
   fbm.request_size(gfr.requested_buffer_size());
+  fprintf(stderr,"amb> fv_phys_requested_buffer_size_in_bytes done\n");
 }
 
 void HommeDynamics::fv_phys_initialize_impl () {
+  fprintf(stderr,"amb> fv_phys_initialize_impl\n");
   if (not fv_phys_active()) return;
+  fprintf(stderr,"amb> fv_phys_initialize_impl done\n");
 }
 
 void HommeDynamics::fv_phys_pre_process () {

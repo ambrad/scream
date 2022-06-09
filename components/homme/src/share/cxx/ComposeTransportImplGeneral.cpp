@@ -23,15 +23,20 @@ ComposeTransportImpl::ComposeTransportImpl ()
   : m_tp_ne(1,1,1), m_tp_ne_qsize(1,1,1), m_tp_ne_hv_q(1,1,1), // throwaway settings
     m_tu_ne(m_tp_ne), m_tu_ne_qsize(m_tp_ne_qsize), m_tu_ne_hv_q(m_tp_ne_hv_q)
 {
+  fprintf(stderr,"amb> ComposeTransportImpl::ctor\n");
   setup();
 }
 
 ComposeTransportImpl::ComposeTransportImpl (const int num_elems)
   : m_tp_ne(1,1,1), m_tp_ne_qsize(1,1,1), m_tp_ne_hv_q(1,1,1), // throwaway settings
     m_tu_ne(m_tp_ne), m_tu_ne_qsize(m_tp_ne_qsize), m_tu_ne_hv_q(m_tp_ne_hv_q)
-{}
+{
+  fprintf(stderr,"amb> ComposeTransportImpl::ctor(num_elems)\n");
+  nslot = calc_nslot(m_geometry.num_elems());
+}
 
 void ComposeTransportImpl::setup () {
+  fprintf(stderr,"amb> ComposeTransportImpl::setup\n");
   m_hvcoord = Context::singleton().get<HybridVCoord>();
   m_elements = Context::singleton().get<Elements>();
   m_state = m_elements.m_state;
@@ -45,6 +50,7 @@ void ComposeTransportImpl::setup () {
 }
 
 void ComposeTransportImpl::reset (const SimulationParams& params) {
+  fprintf(stderr,"amb> ComposeTransportImpl::reset\n");
   const auto num_elems = Context::singleton().get<Connectivity>().get_num_local_elements();
 
   const bool independent_time_steps = params.dt_tracer_factor > params.dt_remap_factor;
@@ -74,7 +80,10 @@ void ComposeTransportImpl::reset (const SimulationParams& params) {
       m_data.dep_pts);
   }
   m_data.independent_time_steps = independent_time_steps;
-  if (m_data.nelemd == num_elems && m_data.qsize == params.qsize) return;
+  if (m_data.nelemd == num_elems && m_data.qsize == params.qsize) {
+    fprintf(stderr,"amb> ComposeTransportImpl::reset early return\n");
+    return;
+  }
 
   m_data.qsize = params.qsize;
   Errors::runtime_check(m_data.qsize > 0,
@@ -104,6 +113,7 @@ void ComposeTransportImpl::reset (const SimulationParams& params) {
            "independent_time_steps %d\n",
            m_data.nelemd, m_data.qsize, m_data.hv_q, m_data.hv_subcycle_q,
            m_data.limiter_option, (int) m_data.independent_time_steps);
+  fprintf(stderr,"amb> ComposeTransportImpl::reset done\n");
 }
 
 int ComposeTransportImpl::requested_buffer_size () const {

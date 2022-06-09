@@ -296,6 +296,7 @@ void init_elements_c (const int& num_elems)
 
 void init_functors_c (const bool& allocate_buffer)
 {
+  fprintf(stderr,"amb> init_functors_c\n");
   auto& c = Context::singleton();
 
   // We init all the functors in the Context, so that every call to
@@ -417,6 +418,7 @@ void init_functors_c (const bool& allocate_buffer)
     auto& dirk = Context::singleton().get<DirkFunctor>();
     dirk.init_buffers(fbm);
   }
+  fprintf(stderr,"amb> init_functors_c done\n");
 }
 
 void init_elements_2d_c (const int& ie,

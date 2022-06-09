@@ -215,13 +215,10 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
   // from Homme's states.
   m_p2d_remapper = grids_manager->create_remapper(m_ref_grid,m_dyn_grid);
   m_d2p_remapper = grids_manager->create_remapper(m_dyn_grid,m_ref_grid);
-
+  }
+  
   // Create separate remapper for Initial Conditions
   m_ic_remapper = grids_manager->create_remapper(m_ref_grid,m_dyn_grid);
-  } else {
-    // We do not use any objects of type AbstractRemapper. Instead, we call
-    // Homme's remapper routines.
-  }
 }
 
 size_t HommeDynamics::requested_buffer_size_in_bytes() const
@@ -251,21 +248,24 @@ size_t HommeDynamics::requested_buffer_size_in_bytes() const
   fbm.request_size(diag.requested_buffer_size());
   fbm.request_size(ff.requested_buffer_size());
   fbm.request_size(vrm.requested_buffer_size());
-
+  fprintf(stderr,"amb> requested_buffer_size_in_bytes 1\n");
   // Functors that whose creation depends on the Homme namelist.
   if (params.transport_alg == 0) {
     auto& esf = c.create_if_not_there<EulerStepFunctor>(num_elems);
     fbm.request_size(esf.requested_buffer_size());
   } else {
-    auto& ct = c.create_if_not_there<ComposeTransport>();
+    auto& ct = c.create_if_not_there<ComposeTransport>(num_elems);
     fbm.request_size(ct.requested_buffer_size());
   }
+  fprintf(stderr,"amb> requested_buffer_size_in_bytes 2\n");
   if (need_dirk) {
     // Create dirk functor only if needed
     auto& dirk = c.create_if_not_there<DirkFunctor>(num_elems);
     fbm.request_size(dirk.requested_buffer_size());
   }
   fv_phys_requested_buffer_size_in_bytes();
+
+  fprintf(stderr,"amb> requested_buffer_size_in_bytes done\n");
 
   return fbm.allocated_size()*sizeof(Real);
 }
@@ -340,6 +340,9 @@ void HommeDynamics::initialize_impl (const RunType run_type)
   // will crap out. To prevent that, set FM_z=0
   m_helper_fields.at("FM_ref").get_component(2).deep_copy<Real>(0.0);
 
+  if (fv_phys_active()) {
+    fv_phys_initialize_impl();
+  } else {
   // Setup the p2d and d2p remappers
   m_p2d_remapper->registration_begins();
   m_d2p_remapper->registration_begins();
@@ -374,6 +377,7 @@ void HommeDynamics::initialize_impl (const RunType run_type)
 
   m_p2d_remapper->registration_ends();
   m_d2p_remapper->registration_ends();
+  }
 
   // Sets the scream views into the hommexx internal data structures
   init_homme_views ();
@@ -538,8 +542,12 @@ void HommeDynamics::homme_pre_process (const int dt) {
     });
   }
 
+  if (fv_phys_active()) {
+    fv_phys_pre_process();
+  } else {
   // Remap FT, FM, and Q (or FQ, depending on ftype)
   m_p2d_remapper->remap(true);
+  }
 
   auto& tl = c.get<TimeLevel>();
   auto& ff = c.get<ForcingFunctor>();
@@ -615,8 +623,12 @@ void HommeDynamics::homme_post_process () {
   const auto& params = c.get<Homme::SimulationParams>();
   const auto& tl = c.get<Homme::TimeLevel>();
 
+  if (fv_phys_active()) {
+    fv_phys_post_process();
+  } else {
   // Remap outputs to ref grid
   m_d2p_remapper->remap(true);
+  }
 
   constexpr int N = HOMMEXX_PACK_SIZE;
   using KT = KokkosTypes<DefaultDevice>;
@@ -1007,6 +1019,9 @@ void HommeDynamics::initialize_homme_state () {
   const auto& c = Homme::Context::singleton();
   auto& params = c.get<Homme::SimulationParams>();
 
+  if (fv_phys_active()) {
+    fv_phys_initialize_homme_state();
+  } else {
   // Import IC from ref grid to dyn grid
   // NOTE: if/when PD remapper supports remapping directly to/from subfields,
   //       you can use get_internal_field (which have a single time slice) rather than
@@ -1020,6 +1035,7 @@ void HommeDynamics::initialize_homme_state () {
   m_ic_remapper->register_field(*get_group_in("Q",rgn).m_bundle,m_helper_fields.at("Q_dyn"));
   m_ic_remapper->registration_ends();
   m_ic_remapper->remap(true);
+  }
 
   // Wheter w_int is computed or not, Homme still does some global reduction on w_int when
   // printing the state, so we need to make sure it doesn't contain NaNs
