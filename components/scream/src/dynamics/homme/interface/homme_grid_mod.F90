@@ -52,6 +52,7 @@ contains
     !
     integer (kind=c_int), pointer :: pg_types(:)
 
+    print *, 'amb> init_grids_f90 does this work?'
     write(0,*) 'amb> init_grids_f90'
     call c_f_pointer(pg_types_ptr, pg_types, [num_pg_types])
 
