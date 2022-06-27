@@ -401,7 +401,7 @@ void HommeDynamics::initialize_impl (const RunType run_type)
 
 void HommeDynamics::run_impl (const int dt)
 {
-  try {
+  //try {
 
     // Note: Homme's step lasts homme_dt*max(dt_remap_factor,dt_tracers_factor), and it must divide dt.
     // We neeed to compute dt/homme_dt, and subcycle homme that many times
@@ -424,11 +424,13 @@ void HommeDynamics::run_impl (const int dt)
     // Post process Homme's output, to produce what the rest of Atm expects
     Kokkos::fence();
     homme_post_process ();
+#if 0
   } catch (std::exception& e) {
     EKAT_ERROR_MSG(e.what());
   } catch (...) {
     EKAT_ERROR_MSG("Something went wrong, but we don't know what.\n");
   }
+#endif
 }
 
 void HommeDynamics::finalize_impl (/* what inputs? */)

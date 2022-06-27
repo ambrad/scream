@@ -15,6 +15,7 @@
 #include "ErrorDefs.hpp"
 #include "CamForcing.hpp"
 #include "profiling.hpp"
+#include "mpi/Comm.hpp"
 
 namespace Homme
 {
@@ -87,15 +88,13 @@ void prim_run_subcycle_c (const Real& dt, int& nstep, int& nm1, int& n0, int& np
   }
 
   // Check if needed to compute diagnostics or energy
-  bool compute_diagnostics = false;
-  if (nstep_end%params.state_frequency==0 || nstep_end==tl.nstep0 ||
-      nstep_end>=next_output_step) {
-    compute_diagnostics = true;
-  }
-
-  if (params.disable_diagnostics) {
-    compute_diagnostics = false;
-  }
+  bool compute_diagnostics =
+    ( ! params.disable_diagnostics &&
+      ( // periodic display to stdout
+        nstep_end % params.state_frequency == 0 ||
+        // first two time steps
+        tl.nstep <= tl.nstep0 + (nstep_end - tl.nstep) ));
+  if (compute_diagnostics && context.get<Comm>().root()) fprintf(stderr,"amb> compute_diagnostics %d-%d\n", tl.nstep, nstep_end);
 
   if (compute_diagnostics) {
     Diagnostics& diags = context.get<Diagnostics>();
