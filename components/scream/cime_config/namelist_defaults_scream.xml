@@ -221,6 +221,7 @@ tweaking their $case/namelist_scream.xml file.
     <Reference__Grid>Physics GLL</Reference__Grid>
     <Reference__Grid hgrid=".*pg2">Physics PG2</Reference__Grid>
     <Dynamics__Namelist__File__Name>./data/namelist.nl</Dynamics__Namelist__File__Name>
+    <fvphyshack>false</fvphyshack>
   </Grids__Manager>
 
   <!-- List of nc files for loading inputs on specified grids -->

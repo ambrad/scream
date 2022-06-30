@@ -42,6 +42,8 @@ AtmosphereOutput (const ekat::Comm& comm, const ekat::ParameterList& params,
                   const std::shared_ptr<const gm_type>& grids_mgr)
  : m_comm      (comm)
 {
+  fprintf(stderr,"amb> AtmosphereOutput::ctor FM grid %s\n",field_mgr->get_grid()->name().c_str());
+  
   using vos_t = std::vector<std::string>;
 
   // Figure out what kind of averaging is requested
@@ -79,7 +81,10 @@ AtmosphereOutput (const ekat::Comm& comm, const ekat::ParameterList& params,
   // Try to set the IO grid (checks will be performed)
   set_grid (io_grid);
 
+  fprintf(stderr,"amb> AtmosphereOutput io_grid %s\n",io_grid->name().c_str());
+
   if (io_grid->name()!=fm_grid->name()) {
+    fprintf(stderr,"amb> scorpio_output don't want to be here 1\n");
     // We build a remapper, to remap fields from the fm grid to the io grid
     m_remapper = grids_mgr->create_remapper(fm_grid,io_grid);
 
@@ -147,7 +152,12 @@ void AtmosphereOutput::init()
   set_diagnostics();
 
   for (const auto& var_name : m_fields_names) {
-    register_dimensions(var_name);
+    fprintf(stderr,"amb> AtmosphereOutput::init %s\n",var_name.c_str());
+    try {
+      register_dimensions(var_name);
+    } catch (...) {
+      fprintf(stderr,"amb> scorpio_output init couldn't register %s\n",var_name.c_str());
+    }
   }
 
   // Now that the fields have been gathered register the local views which will be used to determine output data to be written.
@@ -404,6 +414,12 @@ void AtmosphereOutput::register_views()
 {
   // Cycle through all fields and register.
   for (auto const& name : m_fields_names) {
+    try {
+      get_field(name);
+    } catch (...) {
+      fprintf(stderr,"amb> scorpio_output register_views get_field can't find %s\n",name.c_str());
+      continue;
+    }
     auto field = get_field(name);
     bool is_diagnostic = (m_diagnostics.find(name) != m_diagnostics.end());
 
@@ -640,9 +656,14 @@ void AtmosphereOutput::set_diagnostics()
       params.set<std::string>("Diagnostic Name", fname);
       const auto grid_name = m_io_grid->name(); 
       params.set<std::string>("Grid", grid_name);
-      auto diag = diag_factory.create(fname,m_comm,params);
-      diag->set_grids(m_grids_manager);
-      m_diagnostics.emplace(fname,diag);
+      try {
+        auto diag = diag_factory.create(fname,m_comm,params);
+        diag->set_grids(m_grids_manager);
+        m_diagnostics.emplace(fname,diag);
+      } catch (...) {
+        fprintf(stderr,"amb> scorpio_output set_diagnostics exception fname %s grid %s\n",
+                fname.c_str(),grid_name.c_str());
+      }
     }
   }
   // Set required fields for all diagnostics

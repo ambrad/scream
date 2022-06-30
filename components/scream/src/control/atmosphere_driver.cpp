@@ -14,6 +14,8 @@
 #include "ekat/ekat_parse_yaml_file.hpp"
 #include "ekat/std_meta/ekat_std_utils.hpp"
 
+#include "control/fvphyshack.hpp"
+
 #include <fstream>
 
 namespace scream {
@@ -108,6 +110,9 @@ set_params(const ekat::ParameterList& atm_params)
   create_logger ();
 
   m_ad_status |= s_params_set;
+
+  fvphyshack = m_atm_params.sublist("Grids Manager").get<bool>("fvphyshack", false);
+  fprintf(stderr,"amb> fvphyshack %d\n", int(fvphyshack));
 }
 
 void AtmosphereDriver::
@@ -363,12 +368,14 @@ void AtmosphereDriver::initialize_output_managers () {
   // OM of all the requested outputs.
 
   // Check for model restart output
-  if (io_params.isSublist("Model Restart")) {
+  if (not fvphyshack && io_params.isSublist("Model Restart")) {
     auto restart_pl = io_params.sublist("Model Restart");
     // Signal that this is not a normal output, but the model restart one
     m_output_managers.emplace_back();
     auto& om = m_output_managers.back();
     om.setup(m_atm_comm,restart_pl,m_field_mgrs,m_grids_manager,m_run_t0,m_case_t0,true);
+  } else {
+    fprintf(stderr,"amb> atmosphere_driver skip Model Restart\n");
   }
 
   // Build one manager per output yaml file
@@ -584,6 +591,7 @@ void AtmosphereDriver::create_logger () {
 
 void AtmosphereDriver::set_initial_conditions ()
 {
+  fprintf(stderr,"amb> AtmosphereDriver::set_initial_conditions\n");
   m_atm_logger->info("  [EAMXX] set_initial_conditions ...");
 
   auto& ic_pl = m_atm_params.sublist("Initial Conditions");
@@ -603,15 +611,20 @@ void AtmosphereDriver::set_initial_conditions ()
   // Helper lambda, to reduce code duplication
   auto process_ic_field = [&](const Field& f) {
     const auto& fid = f.get_header().get_identifier();
-    const auto& grid_name = fid.get_grid_name();
+    auto grid_name = fid.get_grid_name();
+    fprintf(stderr,"amb> process_ic_field %s %s\n",fid.name().c_str(),grid_name.c_str());
     const auto& fname = fid.name();
 
     const auto& ic_pl_grid = ic_pl.sublist(grid_name);
 
+    fprintf(stderr,"amb> process_ic_field gn %s f %s fid %s\n",
+            grid_name.c_str(), f.name().c_str(), fname.c_str());
+
     // First, check if the input file contains constant values for some of the fields
     if (ic_pl_grid.isParameter(fname)) {
       // The user provided a constant value for this field. Simply use that.
-      if (ic_pl_grid.isType<double>(fname) or ic_pl_grid.isType<std::vector<double>>(fname)) {
+      if (ic_pl_grid.isType<double>(fname) or ic_pl_grid.isType<std::vector<double>>(fname)
+          or (fvphyshack and grid_name == "Physics PG2")) {
         initialize_constant_field(fid, ic_pl_grid);
         fields_inited[grid_name].push_back(fname);
 
@@ -628,7 +641,7 @@ void AtmosphereDriver::set_initial_conditions ()
       // If this field is the parent of other subfields, we only read from file the subfields.
       auto c = f.get_header().get_children();
       if (c.size()==0) {
-        auto& this_grid_ic_fnames = ic_fields_names[fid.get_grid_name()];
+        auto& this_grid_ic_fnames = ic_fields_names[grid_name];
         if (not ekat::contains(this_grid_ic_fnames,fname)) {
           this_grid_ic_fnames.push_back(fname);
         }
@@ -663,6 +676,7 @@ void AtmosphereDriver::set_initial_conditions ()
   for (auto& it1 : ic_fields_names) {
     const auto& grid_name =  it1.first;
     auto fm = m_field_mgrs.at(grid_name);
+    fprintf(stderr,"amb> bundled field loop grid %s\n",grid_name.c_str());
 
     // Note: every time we erase an entry in the vector, all iterators are
     //       invalidated, so we need to re-start the for loop.
@@ -672,18 +686,21 @@ void AtmosphereDriver::set_initial_conditions ()
       auto& names = it1.second;
       for (auto it2=names.begin(); it2!=names.end(); ++it2) {
         const auto& fname = *it2;
-        auto f = fm->get_field(fname);
-        auto p = f.get_header().get_parent().lock();
-        if (p) {
-          const auto& pname = p->get_identifier().name();
-          if (ekat::contains(fields_inited[grid_name],pname)) {
-            // The parent is already inited. No need to init this field as well.
-            names.erase(it2);
-            run_again = true;
-            break;
+        try {
+          auto f = fm->get_field(fname);
+          auto p = f.get_header().get_parent().lock();
+          if (p) {
+            const auto& pname = p->get_identifier().name();
+            if (ekat::contains(fields_inited[grid_name],pname)) {
+              // The parent is already inited. No need to init this field as well.
+              names.erase(it2);
+              run_again = true;
+              break;
+            }
           }
+        } catch (...) {
+          fprintf(stderr,"amb> bundled field loop: can't find %s\n", fname.c_str());
         }
-
       }
     }
   }
@@ -786,6 +803,7 @@ void AtmosphereDriver::set_initial_conditions ()
   m_atm_logger->debug("    [EAMXX] Processing subfields ... done!");
 
   m_atm_logger->info("  [EAMXX] set_initial_conditions ... done!");
+  fprintf(stderr,"amb> AtmosphereDriver::set_initial_conditions done\n");
 }
 
 void AtmosphereDriver::

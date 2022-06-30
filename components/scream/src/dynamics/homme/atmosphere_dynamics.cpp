@@ -1016,13 +1016,11 @@ void HommeDynamics::restart_homme_state () {
 
 void HommeDynamics::initialize_homme_state () {
   const auto& rgn = m_ref_grid->name();
+  fprintf(stderr,"amb> HommeDynamics::initialize_homme_state grid %s\n",rgn.c_str());
 
   const auto& c = Homme::Context::singleton();
   auto& params = c.get<Homme::SimulationParams>();
 
-  if (fv_phys_active()) {
-    fv_phys_initialize_homme_state();
-  } else {
   // Import IC from ref grid to dyn grid
   // NOTE: if/when PD remapper supports remapping directly to/from subfields,
   //       you can use get_internal_field (which have a single time slice) rather than
@@ -1036,7 +1034,6 @@ void HommeDynamics::initialize_homme_state () {
   m_ic_remapper->register_field(*get_group_in("Q",rgn).m_bundle,m_helper_fields.at("Q_dyn"));
   m_ic_remapper->registration_ends();
   m_ic_remapper->remap(true);
-  }
 
   // Wheter w_int is computed or not, Homme still does some global reduction on w_int when
   // printing the state, so we need to make sure it doesn't contain NaNs
@@ -1173,6 +1170,7 @@ void HommeDynamics::initialize_homme_state () {
 
   // Can clean up the IC remapper now.
   m_ic_remapper = nullptr;
+  fprintf(stderr,"amb> HommeDynamics::initialize_homme_state done\n");
 }
 // =========================================================================================
 void HommeDynamics::
