@@ -227,7 +227,7 @@ tweaking their $case/namelist_scream.xml file.
   <Grids__Manager>
     <Type>Dynamics Driven</Type>
     <Reference__Grid>Physics GLL</Reference__Grid>
-    <Reference__Grid hgrid=".*pg2">Physics PG2</Reference__Grid>
+    <Reference__Grid hgrid=".*pg2">Physics GLL</Reference__Grid>
     <Dynamics__Namelist__File__Name>./data/namelist.nl</Dynamics__Namelist__File__Name>
     <fvphyshack>false</fvphyshack>
   </Grids__Manager>

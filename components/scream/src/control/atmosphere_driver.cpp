@@ -627,19 +627,20 @@ void AtmosphereDriver::set_initial_conditions ()
   auto process_ic_field = [&](const Field& f) {
     const auto& fid = f.get_header().get_identifier();
     auto grid_name = fid.get_grid_name();
-    fprintf(stderr,"amb> process_ic_field %s %s\n",fid.name().c_str(),grid_name.c_str());
     const auto& fname = fid.name();
 
     const auto& ic_pl_grid = ic_pl.sublist(grid_name);
 
-    fprintf(stderr,"amb> process_ic_field gn %s f %s fid %s\n",
+    fprintf(stderr,"amb> atmosphere_driver process_ic_field gn %s f %s fid %s\n",
             grid_name.c_str(), f.name().c_str(), fname.c_str());
+
+    if (fvphyshack && grid_name == "Physics PG2") return;
 
     // First, check if the input file contains constant values for some of the fields
     if (ic_pl_grid.isParameter(fname)) {
+      fprintf(stderr,"amb> atmosphere_driver ic_pl_grid.isParameter(fname) %s\n",fname.c_str());
       // The user provided a constant value for this field. Simply use that.
-      if (ic_pl_grid.isType<double>(fname) or ic_pl_grid.isType<std::vector<double>>(fname)
-          or (fvphyshack and grid_name == "Physics PG2")) {
+      if (ic_pl_grid.isType<double>(fname) or ic_pl_grid.isType<std::vector<double>>(fname)) {
         initialize_constant_field(fid, ic_pl_grid);
         fields_inited[grid_name].push_back(fname);
 
@@ -906,11 +907,24 @@ void AtmosphereDriver::initialize_atm_procs ()
 
   m_ad_status |= s_procs_inited;
 
+  if (fvphyshack) {
+    fprintf(stderr,"amb> atmosphere_driver ic dyn -> fv\n");
+    const auto num_proc = m_atm_process_group->get_num_processes();
+    for (int i = 0; i < num_proc; ++i) {
+      const auto p = m_atm_process_group->get_process(i);
+      fprintf(stderr,"amb> atmosphere_driver proc i %d name %s\n",i,p->name().c_str());
+      if (p->name() != "Dynamics") continue;
+      const auto hp = std::dynamic_pointer_cast<const HommeDynamics>(p);
+      if (!hp) fprintf(stderr,"amb> atmosphere_driver couldn't cast proc %s\n",p->name().c_str());
+      hp->remap_dyn_to_fv_phys();
+    }
+  }
+
   stop_timer("EAMxx::initialize_atm_procs");
   stop_timer("EAMxx::init");
   m_atm_logger->info("[EAMXX] initialize_atm_procs ... done!");
 
-  report_res_dep_memory_footprint ();
+  //amb report_res_dep_memory_footprint ();
 }
 
 void AtmosphereDriver::

@@ -76,15 +76,18 @@ protected:
   // fv_phys_X, where X is the name of an existing HommeDynamics routine. If
   // fv_phys is not being used, each of these routines does an immediate exit,
   // so it's OK to always call the routine.
-  void fv_phys_set_grids();
+  void fv_phys_set_grids(const std::shared_ptr<const GridsManager>& grids_manager);
   void fv_phys_requested_buffer_size_in_bytes() const;
   void fv_phys_initialize_impl();
   void fv_phys_pre_process();
   void fv_phys_post_process();
   void fv_phys_restart_homme_state();
   void fv_phys_initialize_homme_state();
+public:
   // Fast boolean function returning whether Physics PGN is being used.
   bool fv_phys_active() const;
+  void remap_dyn_to_fv_phys() const;
+  void remap_fv_phys_to_dyn() const;
   
 protected:
   void run_impl        (const int dt);

@@ -70,7 +70,7 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
   m_ref_grid = grids_manager->get_reference_grid();
   const auto& rgn = m_ref_grid->name();
 
-  fv_phys_set_grids();
+  fv_phys_set_grids(grids_manager);
 
   // Init prim structures
   // TODO: they should not be inited yet; should we error out if they are?

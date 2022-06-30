@@ -416,6 +416,7 @@ void AtmosphereInput::register_variables()
 
   // Cycle through all fields
   for (auto const& name : m_fields_names) {
+    fprintf(stderr,"amb> scorpio_input register_variables name %s\n",name.c_str());
     // Determine the IO-decomp and construct a vector of dimension ids for this variable:
     auto vec_of_dims   = get_vec_of_dims(m_layouts.at(name));
     auto io_decomp_tag = get_io_decomp(m_layouts.at(name));

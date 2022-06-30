@@ -39,16 +39,22 @@ bool HommeDynamics::fv_phys_active () const {
   return m_phys_grid_pgN > 0;
 }
 
-void HommeDynamics::fv_phys_set_grids () {
+void HommeDynamics
+::fv_phys_set_grids (const std::shared_ptr<const GridsManager>& grids_manager) {
   fprintf(stderr,"amb> fv_phys_set_grids\n");
-  m_phys_grid_pgN = get_phys_grid_fv_param(m_ref_grid->name());
-  assert(m_phys_grid_pgN < 0 || fvphyshack);
+  const auto grids = grids_manager->supported_grids();
+  for (const auto& grid : grids) {
+    fprintf(stderr,"amb> fv_phys_set_grids process %s\n",grid.c_str());
+    m_phys_grid_pgN = get_phys_grid_fv_param(grid);
+    assert(m_phys_grid_pgN < 0 || fvphyshack);
+    if (m_phys_grid_pgN > 0) break;
+  }
   fprintf(stderr,"amb> fv_phys_set_grids done %d\n", m_phys_grid_pgN);
 }
 
 void HommeDynamics::fv_phys_requested_buffer_size_in_bytes () const {
-  fprintf(stderr,"amb> fv_phys_requested_buffer_size_in_bytes\n");
   if (not fv_phys_active()) return;
+  fprintf(stderr,"amb> fv_phys_requested_buffer_size_in_bytes\n");
   using namespace Homme;
   auto& c = Context::singleton();
   auto& gfr = c.create_if_not_there<GllFvRemap>();
@@ -58,8 +64,8 @@ void HommeDynamics::fv_phys_requested_buffer_size_in_bytes () const {
 }
 
 void HommeDynamics::fv_phys_initialize_impl () {
-  fprintf(stderr,"amb> fv_phys_initialize_impl\n");
   if (not fv_phys_active()) return;
+  fprintf(stderr,"amb> fv_phys_initialize_impl\n");
   using namespace Homme;
   auto& c = Context::singleton();
   auto& gfr = c.get<GllFvRemap>();
@@ -72,18 +78,32 @@ void HommeDynamics::fv_phys_initialize_impl () {
 
 void HommeDynamics::fv_phys_pre_process () {
   if (not fv_phys_active()) return;
+  fprintf(stderr,"amb> fv_phys_pre_process\n");
 }
 
 void HommeDynamics::fv_phys_post_process () {
   if (not fv_phys_active()) return;
+  fprintf(stderr,"amb> fv_phys_post_process\n");
 }
 
 void HommeDynamics::fv_phys_restart_homme_state () {
   if (not fv_phys_active()) return;
+  fprintf(stderr,"amb> fv_phys_restart_homme_state\n");
 }
 
 void HommeDynamics::fv_phys_initialize_homme_state () {
   if (not fv_phys_active()) return;
+  fprintf(stderr,"amb> fv_phys_initialize_homme_state\n");
+}
+
+void HommeDynamics::remap_dyn_to_fv_phys () const {
+  if (not fv_phys_active()) return;
+  fprintf(stderr,"amb> remap_dyn_to_fv_phys\n");
+}
+
+void HommeDynamics::remap_fv_phys_to_dyn () const {
+  if (not fv_phys_active()) return;
+  fprintf(stderr,"amb> remap_fv_phys_to_dynys\n");
 }
 
 } // namespace scream
