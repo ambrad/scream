@@ -49,7 +49,7 @@ void HommeDynamics
     m_phys_grid_pgN = get_phys_grid_fv_param(grid);
     assert(m_phys_grid_pgN < 0 || fvphyshack);
     if (m_phys_grid_pgN > 0) {
-      m_phys_grid_name = grid;
+      m_phys_grid = grids_manager->get_grid(grid);
       break;
     }
   }
@@ -104,7 +104,13 @@ void HommeDynamics::remap_dyn_to_fv_phys () const {
   if (not fv_phys_active()) return;
   fprintf(stderr,"amb> remap_dyn_to_fv_phys\n");
   auto& gfr = Homme::Context::singleton().get<Homme::GllFvRemap>();
-  
+  const auto& gn = m_phys_grid->name();
+  const auto ps = get_field_out("ps", gn).get_view<Real*>();
+  const auto phis = get_field_out("phis", gn).get_view<Real*>();
+  const auto T = get_field_out("T_mid", gn).get_view<Real**>();
+  const auto omega = get_field_out("omega", gn).get_view<Real**>();
+  const auto uv = get_field_out("horiz_winds", gn).get_view<Real***>();
+  const auto q = get_group_out("tracers").m_bundle->get_view<Real***>();
   //gfr.run_dyn_to_fv_phys(time_idx, ps, phis, T, omega, uv, q);
 }
 
