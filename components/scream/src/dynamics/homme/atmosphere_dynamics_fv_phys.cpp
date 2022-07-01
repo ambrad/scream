@@ -8,6 +8,7 @@
 
 // Scream includes
 #include "control/fvphyshack.hpp"
+#include "share/field/field_manager.hpp"
 
 // Ekat includes
 #include "ekat/ekat_assert.hpp"
@@ -42,14 +43,17 @@ bool HommeDynamics::fv_phys_active () const {
 void HommeDynamics
 ::fv_phys_set_grids (const std::shared_ptr<const GridsManager>& grids_manager) {
   fprintf(stderr,"amb> fv_phys_set_grids\n");
-  const auto grids = grids_manager->supported_grids();
+  const auto&& grids = grids_manager->supported_grids();
   for (const auto& grid : grids) {
     fprintf(stderr,"amb> fv_phys_set_grids process %s\n",grid.c_str());
     m_phys_grid_pgN = get_phys_grid_fv_param(grid);
     assert(m_phys_grid_pgN < 0 || fvphyshack);
-    if (m_phys_grid_pgN > 0) break;
+    if (m_phys_grid_pgN > 0) {
+      m_phys_grid_name = grid;
+      break;
+    }
   }
-  fprintf(stderr,"amb> fv_phys_set_grids done %d\n", m_phys_grid_pgN);
+  fprintf(stderr,"amb> fv_phys_set_grids done %d\n", m_phys_grid_pgN);  
 }
 
 void HommeDynamics::fv_phys_requested_buffer_size_in_bytes () const {
@@ -99,6 +103,9 @@ void HommeDynamics::fv_phys_initialize_homme_state () {
 void HommeDynamics::remap_dyn_to_fv_phys () const {
   if (not fv_phys_active()) return;
   fprintf(stderr,"amb> remap_dyn_to_fv_phys\n");
+  auto& gfr = Homme::Context::singleton().get<Homme::GllFvRemap>();
+  
+  //gfr.run_dyn_to_fv_phys(time_idx, ps, phis, T, omega, uv, q);
 }
 
 void HommeDynamics::remap_fv_phys_to_dyn () const {

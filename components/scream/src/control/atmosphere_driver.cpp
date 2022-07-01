@@ -915,8 +915,9 @@ void AtmosphereDriver::initialize_atm_procs ()
       fprintf(stderr,"amb> atmosphere_driver proc i %d name %s\n",i,p->name().c_str());
       if (p->name() != "Dynamics") continue;
       const auto hp = std::dynamic_pointer_cast<const HommeDynamics>(p);
-      if (!hp) fprintf(stderr,"amb> atmosphere_driver couldn't cast proc %s\n",p->name().c_str());
+      if (not hp) fprintf(stderr,"amb> atmosphere_driver couldn't cast proc %s\n",p->name().c_str());
       hp->remap_dyn_to_fv_phys();
+      break;
     }
   }
 

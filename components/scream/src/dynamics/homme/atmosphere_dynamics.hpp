@@ -10,6 +10,8 @@
 namespace scream
 {
 
+class FieldManager;
+
 /*
  *  The class responsible to handle the atmosphere dynamics
  *
@@ -76,6 +78,11 @@ protected:
   // fv_phys_X, where X is the name of an existing HommeDynamics routine. If
   // fv_phys is not being used, each of these routines does an immediate exit,
   // so it's OK to always call the routine.
+  //   For the finite volume (FV) physics grid, sometimes referred to as
+  // "physgrid", we use the remapper that Homme provides. Store N in pgN; if the
+  // grid is not FV, then this variable is set to -1.
+  int m_phys_grid_pgN;
+  std::string m_phys_grid_name;
   void fv_phys_set_grids(const std::shared_ptr<const GridsManager>& grids_manager);
   void fv_phys_requested_buffer_size_in_bytes() const;
   void fv_phys_initialize_impl();
@@ -122,10 +129,6 @@ protected:
   std::shared_ptr<AbstractRemapper>   m_p2d_remapper;
   std::shared_ptr<AbstractRemapper>   m_d2p_remapper;
   std::shared_ptr<AbstractRemapper>   m_ic_remapper;
-  // For the finite volume (FV) physics grid, sometimes referred to as
-  // "physgrid", we use the remapper that Homme provides. Store N in pgN; if the
-  // grid is not FV, then this variable is set to -1.
-  int m_phys_grid_pgN;
 
   // The dynamics and reference grids
   std::shared_ptr<const AbstractGrid>  m_dyn_grid;
