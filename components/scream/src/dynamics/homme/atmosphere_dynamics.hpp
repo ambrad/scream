@@ -65,7 +65,7 @@ protected:
   void init_homme_vcoord ();
 
   // Updates p_mid
-  void update_pressure ();
+  void update_pressure (const std::shared_ptr<const AbstractGrid>& grid);
 
   // Copy initial states from n0 timelevel to other timelevels
   void copy_dyn_states_to_all_timelevels ();

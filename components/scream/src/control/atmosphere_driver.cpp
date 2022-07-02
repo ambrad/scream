@@ -241,13 +241,12 @@ void AtmosphereDriver::create_fields()
             "   grid name: " + req.grid + "\n");
         // Given request for group A on grid g1 to be an Import of
         // group B on grid g2, register each field in group B in the
-
         // field manager on grid g1.
         const auto& fm = m_field_mgrs.at(req.grid);
         const auto& rel_fm   = m_field_mgrs.at(req.src_grid);
         const auto& rel_info = rel_fm->get_groups_info().at(req.src_name);
 
-        auto r = m_grids_manager->create_remapper(req.src_grid,req.grid);
+        auto r = fvphyshack ? nullptr : m_grids_manager->create_remapper(req.src_grid,req.grid);
         // Loop over all fields in group src_name on grid src_grid.
         for (const auto& fname : rel_info->m_fields_names) {
           // Get field on src_grid
@@ -255,9 +254,19 @@ void AtmosphereDriver::create_fields()
 
           // Build a FieldRequest for the same field on greq's grid,
           // and add it to the group of this request
-          auto fid = r->create_tgt_fid(f->get_header().get_identifier());
-          FieldRequest freq(fid,req.name,req.pack_size);
-          fm->register_field(freq);
+          if (fvphyshack) {
+            const auto& sfid = f->get_header().get_identifier();
+            auto dims = sfid.get_layout().dims();
+            dims[0] = fm->get_grid()->get_num_local_dofs();
+            FieldLayout fl(sfid.get_layout().tags(), dims);
+            FieldIdentifier fid(sfid.name(), fl, sfid.get_units(), req.grid);
+            FieldRequest freq(fid,req.name,req.pack_size);
+            fm->register_field(freq);
+          } else {
+            const auto fid = r->create_tgt_fid(f->get_header().get_identifier());
+            FieldRequest freq(fid,req.name,req.pack_size);
+            fm->register_field(freq);
+          }
         }
 
         // Now that the fields have been imported on this grid's GM,
@@ -304,6 +313,7 @@ void AtmosphereDriver::create_fields()
   }
   for (const auto& req : m_atm_process_group->get_required_field_requests()) {
     const auto& fid = req.fid;
+    fprintf(stderr,"amb> atmosphere_driver wtf fid %s %s\n",fid.name().c_str(),fid.get_grid_name().c_str());
     auto fm = get_field_mgr(fid.get_grid_name());
     m_atm_process_group->set_required_field(fm->get_field(fid).get_const());
   }
@@ -907,8 +917,8 @@ void AtmosphereDriver::initialize_atm_procs ()
 
   m_ad_status |= s_procs_inited;
 
-  if (fvphyshack) {
-    fprintf(stderr,"amb> atmosphere_driver ic dyn -> fv\n");
+  if (false and fvphyshack) {
+    fprintf(stderr,"amb> atmosphere_driver calls remap_dyn_to_fv_phys?\n");
     const auto num_proc = m_atm_process_group->get_num_processes();
     for (int i = 0; i < num_proc; ++i) {
       const auto p = m_atm_process_group->get_process(i);
