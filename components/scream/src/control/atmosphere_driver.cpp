@@ -313,7 +313,6 @@ void AtmosphereDriver::create_fields()
   }
   for (const auto& req : m_atm_process_group->get_required_field_requests()) {
     const auto& fid = req.fid;
-    fprintf(stderr,"amb> atmosphere_driver wtf fid %s %s\n",fid.name().c_str(),fid.get_grid_name().c_str());
     auto fm = get_field_mgr(fid.get_grid_name());
     m_atm_process_group->set_required_field(fm->get_field(fid).get_const());
   }

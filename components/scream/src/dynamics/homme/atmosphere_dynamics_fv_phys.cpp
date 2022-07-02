@@ -4,11 +4,13 @@
 #include "Context.hpp"
 #include "FunctorsBuffersManager.hpp"
 #include "SimulationParams.hpp"
+#include "TimeLevel.hpp"
 #include "GllFvRemap.hpp"
 
 // Scream includes
 #include "control/fvphyshack.hpp"
 #include "share/field/field_manager.hpp"
+#include "dynamics/homme/homme_dimensions.hpp"
 
 // Ekat includes
 #include "ekat/ekat_assert.hpp"
@@ -103,15 +105,40 @@ void HommeDynamics::fv_phys_initialize_homme_state () {
 void HommeDynamics::remap_dyn_to_fv_phys () const {
   if (not fv_phys_active()) return;
   fprintf(stderr,"amb> remap_dyn_to_fv_phys\n");
-  auto& gfr = Homme::Context::singleton().get<Homme::GllFvRemap>();
+  const auto& c = Homme::Context::singleton();
+  auto& gfr = c.get<Homme::GllFvRemap>();
+  const auto time_idx = c.get<Homme::TimeLevel>().n0;
+  constexpr int NGP = HOMMEXX_NP;
+  const int nelem = m_dyn_grid->get_num_local_dofs()/(NGP*NGP);
+  const auto npg = m_phys_grid_pgN*m_phys_grid_pgN;
   const auto& gn = m_phys_grid->name();
-  const auto ps = get_field_out("ps", gn).get_view<Real*>();
-  const auto phis = get_field_out("phis", gn).get_view<Real*>();
-  const auto T = get_field_out("T_mid", gn).get_view<Real**>();
-  const auto omega = get_field_out("omega", gn).get_view<Real**>();
-  const auto uv = get_field_out("horiz_winds", gn).get_view<Real***>();
-  const auto q = get_group_out("tracers").m_bundle->get_view<Real***>();
-  //gfr.run_dyn_to_fv_phys(time_idx, ps, phis, T, omega, uv, q);
+  const auto nlev = get_field_out("T_mid", gn).get_view<Real**>().extent_int(1);
+  const auto nq = get_group_out("tracers").m_bundle->get_view<Real***>().extent_int(1);
+  {
+    const auto vec = get_field_out("horiz_winds", gn).get_view<Real***>().extent_int(1);
+    fprintf(stderr,"amb> remap_dyn_to_fv_phys nelem %d nq %d npg %d nlev %d vec %d\n",
+            nelem,nq,npg,nlev,vec);
+  }
+  const auto ps =
+    Field::view_dev_t<Real**>(get_field_out("ps", gn).get_view<Real*>().data(),
+                              nelem, npg);
+  const auto phis =
+    Field::view_dev_t<Real**>(get_field_out("phis", gn).get_view<Real*>().data(),
+                              nelem, npg);
+  const auto T =
+    Field::view_dev_t<Real***>(get_field_out("T_mid", gn).get_view<Real**>().data(),
+                               nelem, npg, nlev);
+  const auto omega =
+    Field::view_dev_t<Real***>(get_field_out("omega", gn).get_view<Real**>().data(),
+                               nelem, npg, nlev);
+  assert(get_field_out("horiz_winds", gn).get_view<Real***>().extent_int(1) == 2);
+  const auto uv =
+    Field::view_dev_t<Real****>(get_field_out("horiz_winds", gn).get_view<Real***>().data(),
+                                nelem, npg, 2, nlev);
+  const auto q =
+    Field::view_dev_t<Real****>(get_group_out("tracers").m_bundle->get_view<Real***>().data(),
+                                nelem, npg, nq, nlev);
+  gfr.run_dyn_to_fv_phys(time_idx, ps, phis, T, omega, uv, q);
 }
 
 void HommeDynamics::remap_fv_phys_to_dyn () const {
