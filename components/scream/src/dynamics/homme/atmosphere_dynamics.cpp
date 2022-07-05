@@ -412,6 +412,27 @@ void HommeDynamics::initialize_impl (const RunType run_type)
   // Complete homme model initialization
   prim_init_model_f90 ();
 
+  if (fv_phys_active()) {
+    fprintf(stderr,"amb> atmosphere_dynamics calls remap_dyn_to_fv_phys?\n");
+    remap_dyn_to_fv_phys();
+    const auto ncols = m_phys_grid->get_num_local_dofs();
+    const auto& pgn = m_phys_grid->name();
+    m_helper_fields.at("FT_phys").deep_copy(get_field_in("T_mid",pgn));
+    auto FM_ref = m_helper_fields.at("FM_phys").get_view<Real***>();
+    auto horiz_winds = get_field_out("horiz_winds",pgn).get_view<Real***>();
+    Kokkos::parallel_for(Kokkos::RangePolicy<>(0,ncols*nlevs),
+                         KOKKOS_LAMBDA (const int idx) {
+      const int icol = idx / nlevs;
+      const int ilev = idx % nlevs;
+
+      FM_ref(icol,0,ilev) = horiz_winds(icol,0,ilev);
+      FM_ref(icol,1,ilev) = horiz_winds(icol,1,ilev);
+    });
+    update_pressure (m_phys_grid);
+    //amb Maybe hack in something here using get_fields/groups_in to delete the
+    // ref_grid fields.
+  }
+
   // Set up field property checks
   // Note: We are seeing near epsilon negative values in a handful of places,
   // The strategy is to
@@ -1196,28 +1217,10 @@ void HommeDynamics::initialize_homme_state () {
   // Can clean up the IC remapper now.
   m_ic_remapper = nullptr;
 
-  if (fv_phys_active()) {
-    fprintf(stderr,"amb> atmosphere_dynamics calls remap_dyn_to_fv_phys?\n");
-    remap_dyn_to_fv_phys();
-    const auto ncols = m_phys_grid->get_num_local_dofs();
-    const auto& pgn = m_phys_grid->name();
-    m_helper_fields.at("FT_phys").deep_copy(get_field_in("T_mid",pgn));
-    auto FM_ref = m_helper_fields.at("FM_phys").get_view<Real***>();
-    auto horiz_winds = get_field_out("horiz_winds",pgn).get_view<Real***>();
-    Kokkos::parallel_for(Kokkos::RangePolicy<>(0,ncols*nlevs),
-                         KOKKOS_LAMBDA (const int idx) {
-      const int icol = idx / nlevs;
-      const int ilev = idx % nlevs;
-
-      FM_ref(icol,0,ilev) = horiz_winds(icol,0,ilev);
-      FM_ref(icol,1,ilev) = horiz_winds(icol,1,ilev);
-    });
-    //amb Maybe hack in something here using get_fields/groups_in to delete the
-    // ref_grid fields.
+  if (not fv_phys_active()) {
+    // Initialize p_mid/p_int
+    update_pressure (m_phys_grid);
   }
-
-  // Initialize p_mid/p_int
-  update_pressure (m_phys_grid);
 
   fprintf(stderr,"amb> HommeDynamics::initialize_homme_state done\n");
 }
