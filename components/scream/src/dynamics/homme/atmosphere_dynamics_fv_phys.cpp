@@ -42,19 +42,10 @@ bool HommeDynamics::fv_phys_active () const {
   return m_phys_grid_pgN > 0;
 }
 
-void HommeDynamics
-::fv_phys_set_grids (const std::shared_ptr<const GridsManager>& grids_manager) {
+void HommeDynamics::fv_phys_set_grids () {
   fprintf(stderr,"amb> fv_phys_set_grids\n");
-  const auto&& grids = grids_manager->supported_grids();
-  for (const auto& grid : grids) {
-    fprintf(stderr,"amb> fv_phys_set_grids process %s\n",grid.c_str());
-    m_phys_grid_pgN = get_phys_grid_fv_param(grid);
-    assert(m_phys_grid_pgN < 0 || fvphyshack);
-    if (m_phys_grid_pgN > 0) {
-      m_phys_grid = grids_manager->get_grid(grid);
-      break;
-    }
-  }
+  m_phys_grid_pgN = get_phys_grid_fv_param(m_phys_grid->name());
+  assert(m_phys_grid_pgN < 0 || fvphyshack);
   fprintf(stderr,"amb> fv_phys_set_grids done %d\n", m_phys_grid_pgN);  
 }
 
@@ -119,26 +110,30 @@ void HommeDynamics::remap_dyn_to_fv_phys () const {
     fprintf(stderr,"amb> remap_dyn_to_fv_phys nelem %d nq %d npg %d nlev %d vec %d\n",
             nelem,nq,npg,nlev,vec);
   }
-  const auto ps =
-    Field::view_dev_t<Real**>(get_field_out("ps", gn).get_view<Real*>().data(),
-                              nelem, npg);
-  const auto phis =
-    Field::view_dev_t<Real**>(get_field_out("phis", gn).get_view<Real*>().data(),
-                              nelem, npg);
-  const auto T =
-    Field::view_dev_t<Real***>(get_field_out("T_mid", gn).get_view<Real**>().data(),
-                               nelem, npg, nlev);
-  const auto omega =
-    Field::view_dev_t<Real***>(get_field_out("omega", gn).get_view<Real**>().data(),
-                               nelem, npg, nlev);
+  const auto ps = Homme::GllFvRemap::Phys1T(
+    get_field_out("ps", gn).get_view<Real*>().data(),
+    nelem, npg);
+  const auto phis = Homme::GllFvRemap::Phys1T(
+    get_field_out("phis", gn).get_view<Real*>().data(),
+    nelem, npg);
+  const auto T = Homme::GllFvRemap::Phys2T(
+    get_field_out("T_mid", gn).get_view<Real**>().data(),
+    nelem, npg, nlev);
+  const auto omega = Homme::GllFvRemap::Phys2T(
+    get_field_out("omega", gn).get_view<Real**>().data(),
+    nelem, npg, nlev);
   assert(get_field_out("horiz_winds", gn).get_view<Real***>().extent_int(1) == 2);
-  const auto uv =
-    Field::view_dev_t<Real****>(get_field_out("horiz_winds", gn).get_view<Real***>().data(),
-                                nelem, npg, 2, nlev);
-  const auto q =
-    Field::view_dev_t<Real****>(get_group_out("tracers").m_bundle->get_view<Real***>().data(),
-                                nelem, npg, nq, nlev);
-  gfr.run_dyn_to_fv_phys(time_idx, ps, phis, T, omega, uv, q);
+  const auto uv = Homme::GllFvRemap::Phys3T(
+    get_field_out("horiz_winds", gn).get_view<Real***>().data(),
+    nelem, npg, 2, nlev);
+  const auto q = Homme::GllFvRemap::Phys3T(
+    get_group_out("tracers").m_bundle->get_view<Real***>().data(),
+    nelem, npg, nq, nlev);
+  const auto dp = Homme::GllFvRemap::Phys2T(
+    get_field_out("pseudo_density", gn).get_view<Real**>().data(),
+    nelem, npg, nlev);
+  gfr.run_dyn_to_fv_phys(time_idx, ps, phis, T, omega, uv, q, &dp);
+  fprintf(stderr,"amb> remap_dyn_to_fv_phys done\n");
 }
 
 void HommeDynamics::remap_fv_phys_to_dyn () const {

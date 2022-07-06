@@ -67,10 +67,10 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
   // Grab dynamics and reference grid
   const auto dgn = "Dynamics";
   m_dyn_grid = grids_manager->get_grid(dgn);
-  m_ref_grid = grids_manager->get_reference_grid();
+  m_phys_grid = grids_manager->get_reference_grid();
+  m_cgll_grid = grids_manager->get_grid("Physics GLL");
 
-  fv_phys_set_grids(grids_manager);
-  if (not fv_phys_active()) m_phys_grid = m_ref_grid;
+  fv_phys_set_grids();
 
   // Init prim structures
   // TODO: they should not be inited yet; should we error out if they are?
@@ -172,11 +172,11 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
   add_field<Computed>("p_mid",         FL({COL,     LEV},{ncols,  nlev_mid}),Pa,    pgn,N);
   add_field<Computed>("omega",         FL({COL,     LEV},{ncols,  nlev_mid}),Pa/s,  pgn,N);
   add_group<Updated>("tracers",pgn,N, Bundling::Required);
-  if (m_phys_grid != m_ref_grid) {
+  if (m_phys_grid != m_cgll_grid) {
     // Read CGLL IC data even though our in/out format is pgN. Would be good to
     // delete these fields after reading the ICs.
-    const auto& rgn = m_ref_grid->name();
-    const auto nc = m_ref_grid->get_num_local_dofs();
+    const auto& rgn = m_cgll_grid->name();
+    const auto nc = m_cgll_grid->get_num_local_dofs();
     add_field<Required>("horiz_winds",   FL({COL,CMP, LEV},{nc,2,nlev_mid}),m/s,   rgn,N);
     add_field<Required>("T_mid",         FL({COL,     LEV},{nc,  nlev_mid}),K,     rgn,N);
     add_field<Required>("pseudo_density",FL({COL,     LEV},{nc,  nlev_mid}),Pa,    rgn,N);
@@ -226,12 +226,12 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
     // is more convenient to use two different remappers: the pd remapper will
     // remap into Homme's forcing views, while the dp remapper will remap from
     // Homme's states.
-    m_p2d_remapper = grids_manager->create_remapper(m_ref_grid,m_dyn_grid);
-    m_d2p_remapper = grids_manager->create_remapper(m_dyn_grid,m_ref_grid);
+    m_p2d_remapper = grids_manager->create_remapper(m_phys_grid,m_dyn_grid);
+    m_d2p_remapper = grids_manager->create_remapper(m_dyn_grid,m_phys_grid);
   }
   
   // Create separate remapper for Initial Conditions
-  m_ic_remapper = grids_manager->create_remapper(m_ref_grid,m_dyn_grid);
+  m_ic_remapper = grids_manager->create_remapper(m_cgll_grid,m_dyn_grid);
 }
 
 size_t HommeDynamics::requested_buffer_size_in_bytes() const
@@ -337,7 +337,8 @@ void HommeDynamics::initialize_impl (const RunType run_type)
   const int nelem = m_dyn_grid->get_num_local_dofs()/(NGP*NGP);
   const int ncols = m_phys_grid->get_num_local_dofs();
   const int nlevs = m_dyn_grid->get_num_vertical_levels();
-  assert(nlevs == m_ref_grid->get_num_vertical_levels());
+  assert(nlevs == m_dyn_grid->get_num_vertical_levels());
+  assert(nlevs == m_cgll_grid->get_num_vertical_levels());
   assert(nlevs == m_phys_grid->get_num_vertical_levels());
   const int qsize = params.qsize;
 
@@ -413,7 +414,6 @@ void HommeDynamics::initialize_impl (const RunType run_type)
   prim_init_model_f90 ();
 
   if (fv_phys_active()) {
-    fprintf(stderr,"amb> atmosphere_dynamics calls remap_dyn_to_fv_phys?\n");
     remap_dyn_to_fv_phys();
     const auto ncols = m_phys_grid->get_num_local_dofs();
     const auto& pgn = m_phys_grid->name();
@@ -926,7 +926,7 @@ void HommeDynamics::restart_homme_state () {
   using PF = PhysicsFunctions<DefaultDevice>;
 
   const auto& dgn = m_dyn_grid->name();
-  const auto& rgn = m_ref_grid->name();
+  const auto& rgn = m_phys_grid->name();
 
   // All internal fields should have been read from restart file.
   // We need to remap Q_dyn, v_dyn, w_dyn, T_dyn back to ref grid,
@@ -938,8 +938,8 @@ void HommeDynamics::restart_homme_state () {
   auto& params = c.get<Homme::SimulationParams>();
 
   constexpr int NGP = HOMMEXX_NP;
-  const int nlevs = m_ref_grid->get_num_vertical_levels();
-  const int ncols = m_ref_grid->get_num_local_dofs();
+  const int nlevs = m_phys_grid->get_num_vertical_levels();
+  const int ncols = m_phys_grid->get_num_local_dofs();
   const int nelem = m_dyn_grid->get_num_local_dofs() / (NGP*NGP);
   const int npacks = ekat::PackInfo<N>::num_packs(nlevs);
   const int qsize = params.qsize;
@@ -1062,7 +1062,7 @@ void HommeDynamics::restart_homme_state () {
 }
 
 void HommeDynamics::initialize_homme_state () {
-  const auto& rgn = m_ref_grid->name();
+  const auto& rgn = m_cgll_grid->name();
   fprintf(stderr,"amb> HommeDynamics::initialize_homme_state grid %s\n",rgn.c_str());
 
   const auto& c = Homme::Context::singleton();
@@ -1178,7 +1178,7 @@ void HommeDynamics::initialize_homme_state () {
     //       have different number of levels. For u,v, we could, but
     //       we cannot (11/2021) subview 2 slices of FM together, so
     //       we'd need to also subview horiz_winds. Since we
-    const auto ncols = m_ref_grid->get_num_local_dofs();
+    const auto ncols = m_phys_grid->get_num_local_dofs();
     if (params.ftype==Homme::ForcingAlg::FORCING_2) {
       m_helper_fields.at("FQ_phys").deep_copy(*get_group_out("Q",rgn).m_bundle);
     }

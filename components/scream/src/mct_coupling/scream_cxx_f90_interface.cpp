@@ -112,10 +112,7 @@ void scream_create_atm_instance (const MPI_Fint f_comm, const int atm_id,
     ad.create_atm_processes ();
     ad.create_grids ();
     ad.create_fields ();
-    ad.set_surface_coupling (std::make_shared<SurfaceCoupling>(
-                               fvphyshack ?
-                               ad.get_field_mgr("Physics PG2") :
-                               ad.get_ref_grid_field_mgr()));
+    ad.set_surface_coupling (std::make_shared<SurfaceCoupling>(ad.get_ref_grid_field_mgr()));
   });
 }
 

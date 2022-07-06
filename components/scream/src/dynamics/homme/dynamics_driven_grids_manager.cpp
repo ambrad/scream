@@ -143,6 +143,10 @@ build_grids (const std::set<std::string>& grid_names)
     build_physics_grid(m_ref_grid_name);
   }
 
+  if (m_grids.find("Physics GLL")==m_grids.end()) {
+    build_physics_grid("Physics GLL");
+  }
+
   // Clean up temporaries used during grid initialization
   cleanup_grid_init_data_f90 ();
 }

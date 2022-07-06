@@ -77,6 +77,11 @@ void SurfaceCoupling::do_export (const bool init_phase)
       
       l_Sa_z(i)       = z_mid_i(last_entry);
       l_Sa_ptem(i)    = PF::calculate_theta_from_T(T_mid_i(last_entry), p_mid_i(last_entry));
+      if (i == 0)
+        fprintf(stderr,"amb> sce i %d le %d %1.2e %1.2e %1.2e %1.2e %1.2e %1.2e\n",
+                i,last_entry,
+                T_int_bot,z_mid_i(last_entry),T_mid_i(last_entry),p_mid_i(last_entry),
+                pseudo_density_i(last_entry),dz_i(last_entry));
       l_Sa_dens(i)    = PF::calculate_density(pseudo_density_i(last_entry), dz_i(last_entry));
       l_Sa_pslv(i)    = PF::calculate_psl(T_int_bot, p_int_i(num_levs), phis(i) );
       l_Faxa_rainl(i) = precip_liq_surf(i)*C::RHO_H2O;

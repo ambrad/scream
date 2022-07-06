@@ -916,20 +916,6 @@ void AtmosphereDriver::initialize_atm_procs ()
 
   m_ad_status |= s_procs_inited;
 
-  if (false and fvphyshack) {
-    fprintf(stderr,"amb> atmosphere_driver calls remap_dyn_to_fv_phys?\n");
-    const auto num_proc = m_atm_process_group->get_num_processes();
-    for (int i = 0; i < num_proc; ++i) {
-      const auto p = m_atm_process_group->get_process(i);
-      fprintf(stderr,"amb> atmosphere_driver proc i %d name %s\n",i,p->name().c_str());
-      if (p->name() != "Dynamics") continue;
-      const auto hp = std::dynamic_pointer_cast<const HommeDynamics>(p);
-      if (not hp) fprintf(stderr,"amb> atmosphere_driver couldn't cast proc %s\n",p->name().c_str());
-      hp->remap_dyn_to_fv_phys();
-      break;
-    }
-  }
-
   stop_timer("EAMxx::initialize_atm_procs");
   stop_timer("EAMxx::init");
   m_atm_logger->info("[EAMXX] initialize_atm_procs ... done!");

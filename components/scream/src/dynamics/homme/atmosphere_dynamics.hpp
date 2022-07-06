@@ -82,7 +82,7 @@ protected:
   // "physgrid", we use the remapper that Homme provides. Store N in pgN; if the
   // grid is not FV, then this variable is set to -1.
   int m_phys_grid_pgN;
-  void fv_phys_set_grids(const std::shared_ptr<const GridsManager>& grids_manager);
+  void fv_phys_set_grids();
   void fv_phys_requested_buffer_size_in_bytes() const;
   void fv_phys_initialize_impl();
   void fv_phys_pre_process();
@@ -131,8 +131,8 @@ protected:
 
   // The dynamics and reference grids
   std::shared_ptr<const AbstractGrid> m_dyn_grid;  // Dynamics DGLL
-  std::shared_ptr<const AbstractGrid> m_ref_grid;  // Unique CGLL
   std::shared_ptr<const AbstractGrid> m_phys_grid; // Column parameterizations grid
+  std::shared_ptr<const AbstractGrid> m_cgll_grid; // Unique CGLL
 };
 
 } // namespace scream
