@@ -5,6 +5,7 @@
 #include "FunctorsBuffersManager.hpp"
 #include "SimulationParams.hpp"
 #include "TimeLevel.hpp"
+#include "ElementsForcing.hpp"
 #include "GllFvRemap.hpp"
 
 // Scream includes
@@ -55,7 +56,7 @@ void HommeDynamics::fv_phys_requested_buffer_size_in_bytes () const {
   using namespace Homme;
   auto& c = Context::singleton();
   auto& gfr = c.create_if_not_there<GllFvRemap>();
-  auto& fbm  = c.create_if_not_there<FunctorsBuffersManager>();
+  auto& fbm = c.create_if_not_there<FunctorsBuffersManager>();
   fbm.request_size(gfr.requested_buffer_size());
   fprintf(stderr,"amb> fv_phys_requested_buffer_size_in_bytes done\n");
 }
@@ -109,6 +110,7 @@ void HommeDynamics::remap_dyn_to_fv_phys () const {
   const auto nq = get_group_out("tracers").m_bundle->get_view<Real***>().extent_int(1);
   assert(get_field_out("T_mid", gn).get_view<Real**>().extent_int(0) == nelem*npg);
   assert(get_field_out("horiz_winds", gn).get_view<Real***>().extent_int(1) == 2);
+  
   const auto ps = Homme::GllFvRemap::Phys1T(
     get_field_out("ps", gn).get_view<Real*>().data(),
     nelem, npg);
@@ -130,6 +132,7 @@ void HommeDynamics::remap_dyn_to_fv_phys () const {
   const auto dp = Homme::GllFvRemap::Phys2T(
     get_field_out("pseudo_density", gn).get_view<Real**>().data(),
     nelem, npg, nlev);
+
   gfr.run_dyn_to_fv_phys(time_idx, ps, phis, T, omega, uv, q, &dp);
   fprintf(stderr,"amb> remap_dyn_to_fv_phys done\n");
 }
@@ -144,17 +147,27 @@ void HommeDynamics::remap_fv_phys_to_dyn () const {
   const int nelem = m_dyn_grid->get_num_local_dofs()/(NGP*NGP);
   const auto npg = m_phys_grid_pgN*m_phys_grid_pgN;
   const auto& gn = m_phys_grid->name();
-  const auto nlev = get_field_in("T_mid", gn).get_view<const Real**>().extent_int(1);
+  const auto nlev = m_helper_fields.at("FT_phys").get_view<const Real**>().extent_int(1);
   const auto nq = get_group_in("tracers", gn).m_bundle->get_view<const Real***>().extent_int(1);
+  assert(m_helper_fields.at("FT_phys").get_view<const Real**>().extent_int(0) == nelem*npg);
+
+  const auto uv_ndim = m_helper_fields.at("FM_phys").get_view<const Real***>().extent_int(1);
+  assert(uv_ndim == 2 or uv_ndim == 3);
+  // FM in Homme includes a component for omega, but the physics don't modify
+  // omega. Thus, zero FM so that the third component is 0.
+  const auto& forcing = c.get<Homme::ElementsForcing>();
+  Kokkos::deep_copy(forcing.m_fm, 0);
+
   const auto T = Homme::GllFvRemap::CPhys2T(
-    get_field_in("T_mid", gn).get_view<const Real**>().data(),
+    m_helper_fields.at("FT_phys").get_view<const Real**>().data(),
     nelem, npg, nlev);
   const auto uv = Homme::GllFvRemap::CPhys3T(
-    get_field_in("horiz_winds", gn).get_view<const Real***>().data(),
-    nelem, npg, 2, nlev);
+    m_helper_fields.at("FM_phys").get_view<const Real***>().data(),
+    nelem, npg, uv_ndim, nlev);
   const auto q = Homme::GllFvRemap::CPhys3T(
     get_group_in("tracers", gn).m_bundle->get_view<const Real***>().data(),
     nelem, npg, nq, nlev);
+  
   gfr.run_fv_phys_to_dyn(time_idx, T, uv, q);
   gfr.run_fv_phys_to_dyn_dss();
   fprintf(stderr,"amb> remap_fv_phys_to_dyn done\n");
