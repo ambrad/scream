@@ -87,8 +87,6 @@ protected:
   void fv_phys_initialize_impl();
   void fv_phys_pre_process();
   void fv_phys_post_process();
-  void fv_phys_restart_homme_state();
-  void fv_phys_initialize_homme_state();
 public:
   // Fast boolean function returning whether Physics PGN is being used.
   bool fv_phys_active() const;

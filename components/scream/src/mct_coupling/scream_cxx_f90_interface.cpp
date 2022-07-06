@@ -3,7 +3,6 @@
 #include "share/atm_process/atmosphere_process.hpp"
 #include "control/atmosphere_driver.hpp"
 #include "control/surface_coupling.hpp"
-#include "control/fvphyshack.hpp"
 
 #include "dynamics/register_dynamics.hpp"
 #include "physics/register_physics.hpp"

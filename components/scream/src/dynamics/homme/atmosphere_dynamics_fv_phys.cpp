@@ -9,7 +9,6 @@
 #include "GllFvRemap.hpp"
 
 // Scream includes
-#include "control/fvphyshack.hpp"
 #include "share/field/field_manager.hpp"
 #include "dynamics/homme/homme_dimensions.hpp"
 
@@ -46,7 +45,6 @@ bool HommeDynamics::fv_phys_active () const {
 void HommeDynamics::fv_phys_set_grids () {
   fprintf(stderr,"amb> fv_phys_set_grids\n");
   m_phys_grid_pgN = get_phys_grid_fv_param(m_phys_grid->name());
-  assert(m_phys_grid_pgN < 0 || fvphyshack);
   fprintf(stderr,"amb> fv_phys_set_grids done %d\n", m_phys_grid_pgN);  
 }
 
@@ -58,7 +56,6 @@ void HommeDynamics::fv_phys_requested_buffer_size_in_bytes () const {
   auto& gfr = c.create_if_not_there<GllFvRemap>();
   auto& fbm = c.create_if_not_there<FunctorsBuffersManager>();
   fbm.request_size(gfr.requested_buffer_size());
-  fprintf(stderr,"amb> fv_phys_requested_buffer_size_in_bytes done\n");
 }
 
 void HommeDynamics::fv_phys_initialize_impl () {
@@ -68,33 +65,25 @@ void HommeDynamics::fv_phys_initialize_impl () {
   auto& c = Context::singleton();
   auto& gfr = c.get<GllFvRemap>();
   gfr.reset(c.get<SimulationParams>());
-  fprintf(stderr,"amb> calling gfr_init_hxx\n");
   gfr_init_hxx();
-  fprintf(stderr,"amb> gfr_init_hxx returned\n");
-  fprintf(stderr,"amb> fv_phys_initialize_impl done\n");
 }
 
+// Q state: Map get_group_in("tracers", gn) to Homme's FQ.
+// T,uv tendencies: Map F(T,M)_phys to Homme's F(T,M) tendency arrays.
 void HommeDynamics::fv_phys_pre_process () {
   if (not fv_phys_active()) return;
   fprintf(stderr,"amb> fv_phys_pre_process\n");
   remap_fv_phys_to_dyn();
 }
 
+// Remap Homme state to get_field_out("x", m_phys_grid->name()) for x in (ps,
+// phis, T_mid, omega, horiz_winds, tracers, pseudo_density). Then call
+// update_pressure to update p_mid,int.
 void HommeDynamics::fv_phys_post_process () {
   if (not fv_phys_active()) return;
   fprintf(stderr,"amb> fv_phys_post_process\n");
   remap_dyn_to_fv_phys();
   update_pressure(m_phys_grid);
-}
-
-void HommeDynamics::fv_phys_restart_homme_state () {
-  if (not fv_phys_active()) return;
-  fprintf(stderr,"amb> fv_phys_restart_homme_state\n");
-}
-
-void HommeDynamics::fv_phys_initialize_homme_state () {
-  if (not fv_phys_active()) return;
-  fprintf(stderr,"amb> fv_phys_initialize_homme_state\n");
 }
 
 void HommeDynamics::remap_dyn_to_fv_phys () const {
@@ -135,6 +124,7 @@ void HommeDynamics::remap_dyn_to_fv_phys () const {
     nelem, npg, nlev);
 
   gfr.run_dyn_to_fv_phys(time_idx, ps, phis, T, omega, uv, q, &dp);
+  Kokkos::fence();
   fprintf(stderr,"amb> remap_dyn_to_fv_phys done\n");
 }
 
@@ -170,6 +160,7 @@ void HommeDynamics::remap_fv_phys_to_dyn () const {
     nelem, npg, nq, nlev);
   
   gfr.run_fv_phys_to_dyn(time_idx, T, uv, q);
+  Kokkos::fence();
   gfr.run_fv_phys_to_dyn_dss();
   fprintf(stderr,"amb> remap_fv_phys_to_dyn done\n");
 }

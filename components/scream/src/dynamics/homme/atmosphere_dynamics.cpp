@@ -563,10 +563,10 @@ void HommeDynamics::homme_pre_process (const int dt) {
   });
 
   const auto ftype = params.ftype;
-  // PGN note: For ftype 2, FQ is simply the new Q computed by physics; we don't
-  // want a tendency. Leaving this for np4 but disabling this here and in
-  // several other spots for pgN.
-  if (not fv_phys_active()) {
+
+  if (fv_phys_active()) {
+    fv_phys_pre_process();
+  } else {
     if (ftype==Homme::ForcingAlg::FORCING_2) {
       const auto Q  = get_group_in("Q",pgn).m_bundle->get_view<const Pack***>();
       const auto FQ = m_helper_fields.at("FQ_phys").get_view<Pack***>();
@@ -580,11 +580,6 @@ void HommeDynamics::homme_pre_process (const int dt) {
         FQ(icol,iq,ilev) = Q(icol,iq,ilev) - FQ(icol,iq,ilev);
       });
     }
-  }
-
-  if (fv_phys_active()) {
-    fv_phys_pre_process();
-  } else {
     // Remap FT, FM, and Q (or FQ, depending on ftype)
     m_p2d_remapper->remap(true);
   }
