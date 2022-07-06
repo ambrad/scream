@@ -424,11 +424,10 @@ void HommeDynamics::initialize_impl (const RunType run_type)
                          KOKKOS_LAMBDA (const int idx) {
       const int icol = idx / nlevs;
       const int ilev = idx % nlevs;
-
       FM_ref(icol,0,ilev) = horiz_winds(icol,0,ilev);
       FM_ref(icol,1,ilev) = horiz_winds(icol,1,ilev);
     });
-    update_pressure (m_phys_grid);
+    update_pressure(m_phys_grid);
     //amb Maybe hack in something here using get_fields/groups_in to delete the
     // ref_grid fields.
   }
@@ -564,9 +563,9 @@ void HommeDynamics::homme_pre_process (const int dt) {
   });
 
   const auto ftype = params.ftype;
-  //amb Not sure I understand this. For ftype 2, FQ is simply the new Q computed
-  // by physics. We don't want a tendency. Leaving this for np4 but removing for
-  // pgN.
+  // PGN note: For ftype 2, FQ is simply the new Q computed by physics; we don't
+  // want a tendency. Leaving this for np4 but disabling this here and in
+  // several other spots for pgN.
   if (not fv_phys_active()) {
     if (ftype==Homme::ForcingAlg::FORCING_2) {
       const auto Q  = get_group_in("Q",pgn).m_bundle->get_view<const Pack***>();
@@ -639,7 +638,6 @@ void HommeDynamics::homme_pre_process (const int dt) {
       break;
     case ForcingAlg::FORCING_2:
       if (not fv_phys_active()) {
-        //amb See comment above previous FORCING_2 block.
         Kokkos::parallel_for(Kokkos::RangePolicy<>(0,Q.size()),KOKKOS_LAMBDA(const int idx) {
           const int ie = idx / (qsize*NP*NP*NVL);
           const int iq = (idx / (NP*NP*NVL)) % qsize;
@@ -691,71 +689,68 @@ void HommeDynamics::homme_post_process () {
     get_internal_field("w_int_dyn").get_header().get_alloc_properties().reset_subview_idx(tl.n0);
   }
 
-  // Convert VTheta_dp->T, store T,uv, and possibly w in FT, FM,
-  // compute p_int on physics grid.
-  const auto dp_view = get_field_out("pseudo_density",pgn).get_view<Pack**>();
-  const auto p_mid_view = get_field_out("p_mid",pgn).get_view<Pack**>();
-  const auto p_int_view = get_field_out("p_int",pgn).get_view<Pack**>();
-  const auto Q_view   = get_group_out("Q",pgn).m_bundle->get_view<Pack***>();
+  if (fv_phys_active()) {
+    update_pressure(m_phys_grid);
+  } else {
+    // Convert VTheta_dp->T, store T,uv, and possibly w in FT, FM,
+    // compute p_int on physics grid.
+    const auto dp_view = get_field_out("pseudo_density",pgn).get_view<Pack**>();
+    const auto p_mid_view = get_field_out("p_mid",pgn).get_view<Pack**>();
+    const auto p_int_view = get_field_out("p_int",pgn).get_view<Pack**>();
+    const auto Q_view   = get_group_out("Q",pgn).m_bundle->get_view<Pack***>();
 
-  const auto T_view  = get_field_out("T_mid",pgn).get_view<Pack**>();
-  const auto v_view  = get_field_out("horiz_winds",pgn).get_view<Pack***>();
-  const auto T_prev_view = m_helper_fields.at("FT_phys").get_view<Pack**>();
-  const auto V_prev_view = m_helper_fields.at("FM_phys").get_view<Pack***>();
+    const auto T_view  = get_field_out("T_mid",pgn).get_view<Pack**>();
+    const auto v_view  = get_field_out("horiz_winds",pgn).get_view<Pack***>();
+    const auto T_prev_view = m_helper_fields.at("FT_phys").get_view<Pack**>();
+    const auto V_prev_view = m_helper_fields.at("FM_phys").get_view<Pack***>();
 
-  const auto ncols = m_phys_grid->get_num_local_dofs();
-  const auto nlevs = m_phys_grid->get_num_vertical_levels();
-  const auto npacks= ekat::PackInfo<N>::num_packs(nlevs);
+    const auto ncols = m_phys_grid->get_num_local_dofs();
+    const auto nlevs = m_phys_grid->get_num_vertical_levels();
+    const auto npacks= ekat::PackInfo<N>::num_packs(nlevs);
 
-  using ESU = ekat::ExeSpaceUtils<KT::ExeSpace>;
-  const auto policy = ESU::get_thread_range_parallel_scan_team_policy(ncols,npacks);
+    using ESU = ekat::ExeSpaceUtils<KT::ExeSpace>;
+    const auto policy = ESU::get_thread_range_parallel_scan_team_policy(ncols,npacks);
 
-  // Establish the boundary condition for the TOA
-  const auto& hvcoord = c.get<Homme::HybridVCoord>();
-  const auto ps0 = hvcoord.ps0 * hvcoord.hybrid_ai0;
+    // Establish the boundary condition for the TOA
+    const auto& hvcoord = c.get<Homme::HybridVCoord>();
+    const auto ps0 = hvcoord.ps0 * hvcoord.hybrid_ai0;
 
-  Kokkos::parallel_for(policy, KOKKOS_LAMBDA (const KT::MemberType& team) {
-    const int& icol = team.league_rank();
+    Kokkos::parallel_for(policy, KOKKOS_LAMBDA (const KT::MemberType& team) {
+      const int& icol = team.league_rank();
 
-    // Compute p_int and p_mid
-    auto dp = ekat::subview(dp_view,icol);
-    auto p_mid = ekat::subview(p_mid_view,icol);
-    auto p_int = ekat::subview(p_int_view,icol);
+      // Compute p_int and p_mid
+      auto dp = ekat::subview(dp_view,icol);
+      auto p_mid = ekat::subview(p_mid_view,icol);
+      auto p_int = ekat::subview(p_int_view,icol);
 
-    ColOps::column_scan<true>(team,nlevs,dp,p_int,ps0);
-    team.team_barrier();
-    ColOps::compute_midpoint_values(team,nlevs,p_int,p_mid);
-    team.team_barrier();
+      ColOps::column_scan<true>(team,nlevs,dp,p_int,ps0);
+      team.team_barrier();
+      ColOps::compute_midpoint_values(team,nlevs,p_int,p_mid);
+      team.team_barrier();
 
-    // Convert VTheta_dp->VTheta->Theta->T
-    auto T   = ekat::subview(T_view,icol);
-    auto v   = ekat::subview(v_view,icol);
-    auto qv  = ekat::subview(Q_view,icol,0);
+      // Convert VTheta_dp->VTheta->Theta->T
+      auto T   = ekat::subview(T_view,icol);
+      auto v   = ekat::subview(v_view,icol);
+      auto qv  = ekat::subview(Q_view,icol,0);
 
-    auto T_prev = ekat::subview(T_prev_view,icol);
-    auto V_prev = ekat::subview(V_prev_view,icol);
+      auto T_prev = ekat::subview(T_prev_view,icol);
+      auto V_prev = ekat::subview(V_prev_view,icol);
 
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(team,npacks),
-                         [&](const int ilev) {
-      // VTheta_dp->VTheta->Theta->T
-      auto& T_val = T(ilev);
-      T_val /= dp(ilev);
-      T_val = PF::calculate_temperature_from_virtual_temperature(T_val,qv(ilev));
-      T_val = PF::calculate_T_from_theta(T_val,p_mid(ilev));
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(team,npacks),
+                           [&](const int ilev) {
+        // VTheta_dp->VTheta->Theta->T
+        auto& T_val = T(ilev);
+        T_val /= dp(ilev);
+        T_val = PF::calculate_temperature_from_virtual_temperature(T_val,qv(ilev));
+        T_val = PF::calculate_T_from_theta(T_val,p_mid(ilev));
 
-      // Store T, v (and possibly w) at end of the dyn timestep (to back out tendencies later)
-      T_prev(ilev) = T_val;
-      V_prev(0,ilev) = v(0,ilev);
-      V_prev(1,ilev) = v(1,ilev);
+        // Store T, v (and possibly w) at end of the dyn timestep (to back out tendencies later)
+        T_prev(ilev) = T_val;
+        V_prev(0,ilev) = v(0,ilev);
+        V_prev(1,ilev) = v(1,ilev);
+      });
     });
-  });
 
-  auto s = Homme::Context::singleton().get<Homme::ElementsState>();
-  auto tr = Homme::Context::singleton().get<Homme::Tracers>();
-  auto vdyn = m_helper_fields.at("v_dyn");
-
-  if (not fv_phys_active()) {
-    //amb See comments above re: FORCING_2.
     // If ftype==FORCING_2, also set FQ_ref=Q_ref. Next step's Q_dyn will be set
     // as Q_dyn = Q_dyn_old + PD_remap(Q_ref-Q_ref_old)
     const auto ftype = params.ftype;
