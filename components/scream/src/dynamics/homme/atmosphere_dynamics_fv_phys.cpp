@@ -84,6 +84,7 @@ void HommeDynamics::fv_phys_post_process () {
   if (not fv_phys_active()) return;
   fprintf(stderr,"amb> fv_phys_post_process\n");
   remap_dyn_to_fv_phys();
+  update_pressure(m_phys_grid);
 }
 
 void HommeDynamics::fv_phys_restart_homme_state () {

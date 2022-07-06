@@ -418,14 +418,14 @@ void HommeDynamics::initialize_impl (const RunType run_type)
     const auto ncols = m_phys_grid->get_num_local_dofs();
     const auto& pgn = m_phys_grid->name();
     m_helper_fields.at("FT_phys").deep_copy(get_field_in("T_mid",pgn));
-    auto FM_ref = m_helper_fields.at("FM_phys").get_view<Real***>();
+    auto FM_phys = m_helper_fields.at("FM_phys").get_view<Real***>();
     auto horiz_winds = get_field_out("horiz_winds",pgn).get_view<Real***>();
     Kokkos::parallel_for(Kokkos::RangePolicy<>(0,ncols*nlevs),
                          KOKKOS_LAMBDA (const int idx) {
       const int icol = idx / nlevs;
       const int ilev = idx % nlevs;
-      FM_ref(icol,0,ilev) = horiz_winds(icol,0,ilev);
-      FM_ref(icol,1,ilev) = horiz_winds(icol,1,ilev);
+      FM_phys(icol,0,ilev) = horiz_winds(icol,0,ilev);
+      FM_phys(icol,1,ilev) = horiz_winds(icol,1,ilev);
     });
     update_pressure(m_phys_grid);
     //amb Maybe hack in something here using get_fields/groups_in to delete the
@@ -689,9 +689,7 @@ void HommeDynamics::homme_post_process () {
     get_internal_field("w_int_dyn").get_header().get_alloc_properties().reset_subview_idx(tl.n0);
   }
 
-  if (fv_phys_active()) {
-    update_pressure(m_phys_grid);
-  } else {
+  if (not fv_phys_active()) {
     // Convert VTheta_dp->T, store T,uv, and possibly w in FT, FM,
     // compute p_int on physics grid.
     const auto dp_view = get_field_out("pseudo_density",pgn).get_view<Pack**>();
@@ -1188,6 +1186,7 @@ void HommeDynamics::initialize_homme_state () {
       FM_ref(icol,0,ilev) = horiz_winds(icol,0,ilev);
       FM_ref(icol,1,ilev) = horiz_winds(icol,1,ilev);
     });
+    update_pressure(m_phys_grid);
   }
 
   // For initial runs, it's easier to prescribe IC for Q, and compute Qdp = Q*dp
