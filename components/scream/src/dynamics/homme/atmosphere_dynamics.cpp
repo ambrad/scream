@@ -415,11 +415,12 @@ void HommeDynamics::initialize_impl (const RunType run_type)
 
   if (fv_phys_active()) {
     remap_dyn_to_fv_phys();
+    update_pressure(m_phys_grid);
     const auto ncols = m_phys_grid->get_num_local_dofs();
     const auto& pgn = m_phys_grid->name();
     m_helper_fields.at("FT_phys").deep_copy(get_field_in("T_mid",pgn));
     auto FM_phys = m_helper_fields.at("FM_phys").get_view<Real***>();
-    auto horiz_winds = get_field_out("horiz_winds",pgn).get_view<Real***>();
+    auto horiz_winds = get_field_in("horiz_winds",pgn).get_view<const Real***>();
     Kokkos::parallel_for(Kokkos::RangePolicy<>(0,ncols*nlevs),
                          KOKKOS_LAMBDA (const int idx) {
       const int icol = idx / nlevs;
@@ -427,7 +428,6 @@ void HommeDynamics::initialize_impl (const RunType run_type)
       FM_phys(icol,0,ilev) = horiz_winds(icol,0,ilev);
       FM_phys(icol,1,ilev) = horiz_winds(icol,1,ilev);
     });
-    update_pressure(m_phys_grid);
     //amb Maybe hack in something here using get_fields/groups_in to delete the
     // ref_grid fields.
   }
@@ -684,7 +684,29 @@ void HommeDynamics::homme_post_process () {
     get_internal_field("w_int_dyn").get_header().get_alloc_properties().reset_subview_idx(tl.n0);
   }
 
-  if (not fv_phys_active()) {
+  const auto ncols = m_phys_grid->get_num_local_dofs();
+  const auto nlevs = m_phys_grid->get_num_vertical_levels();
+  const auto npacks= ekat::PackInfo<N>::num_packs(nlevs);
+  if (fv_phys_active()) {
+    // Copy current physics T,uv state to FT,M to form tendencies in next
+    // dynamics step.
+    const auto T  = get_field_out("T_mid",pgn).get_view<const Pack**>();
+    const auto uv = get_field_out("horiz_winds",pgn).get_view<const Pack***>();
+    const auto FT = m_helper_fields.at("FT_phys").get_view<Pack**>();
+    const auto FM = m_helper_fields.at("FM_phys").get_view<Pack***>();
+    using ESU = ekat::ExeSpaceUtils<KT::ExeSpace>;
+    const auto policy = ESU::get_thread_range_parallel_scan_team_policy(ncols,npacks);
+    Kokkos::parallel_for(policy, KOKKOS_LAMBDA (const KT::MemberType& team) {
+      const int& icol = team.league_rank();
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(team,npacks),
+                           [&](const int ilev) {
+        FT(icol,ilev) = T(icol,ilev);
+        FM(icol,0,ilev) = uv(icol,0,ilev);
+        FM(icol,1,ilev) = uv(icol,1,ilev);
+      });
+    });
+    Kokkos::fence();
+  } else {
     // Convert VTheta_dp->T, store T,uv, and possibly w in FT, FM,
     // compute p_int on physics grid.
     const auto dp_view = get_field_out("pseudo_density",pgn).get_view<Pack**>();
@@ -696,10 +718,6 @@ void HommeDynamics::homme_post_process () {
     const auto v_view  = get_field_out("horiz_winds",pgn).get_view<Pack***>();
     const auto T_prev_view = m_helper_fields.at("FT_phys").get_view<Pack**>();
     const auto V_prev_view = m_helper_fields.at("FM_phys").get_view<Pack***>();
-
-    const auto ncols = m_phys_grid->get_num_local_dofs();
-    const auto nlevs = m_phys_grid->get_num_vertical_levels();
-    const auto npacks= ekat::PackInfo<N>::num_packs(nlevs);
 
     using ESU = ekat::ExeSpaceUtils<KT::ExeSpace>;
     const auto policy = ESU::get_thread_range_parallel_scan_team_policy(ncols,npacks);
@@ -1166,13 +1184,14 @@ void HommeDynamics::initialize_homme_state () {
     //       have different number of levels. For u,v, we could, but
     //       we cannot (11/2021) subview 2 slices of FM together, so
     //       we'd need to also subview horiz_winds. Since we
+    const auto& pgn = m_phys_grid->name();
     const auto ncols = m_phys_grid->get_num_local_dofs();
     if (params.ftype==Homme::ForcingAlg::FORCING_2) {
-      m_helper_fields.at("FQ_phys").deep_copy(*get_group_out("Q",rgn).m_bundle);
+      m_helper_fields.at("FQ_phys").deep_copy(*get_group_out("Q",pgn).m_bundle);
     }
-    m_helper_fields.at("FT_phys").deep_copy(get_field_in("T_mid",rgn));
+    m_helper_fields.at("FT_phys").deep_copy(get_field_in("T_mid",pgn));
     auto FM_ref = m_helper_fields.at("FM_phys").get_view<Real***>();
-    auto horiz_winds = get_field_out("horiz_winds",rgn).get_view<Real***>();
+    auto horiz_winds = get_field_out("horiz_winds",pgn).get_view<Real***>();
     Kokkos::parallel_for(Kokkos::RangePolicy<>(0,ncols*nlevs),
                          KOKKOS_LAMBDA (const int idx) {
       const int icol = idx / nlevs;
@@ -1181,7 +1200,6 @@ void HommeDynamics::initialize_homme_state () {
       FM_ref(icol,0,ilev) = horiz_winds(icol,0,ilev);
       FM_ref(icol,1,ilev) = horiz_winds(icol,1,ilev);
     });
-    update_pressure(m_phys_grid);
   }
 
   // For initial runs, it's easier to prescribe IC for Q, and compute Qdp = Q*dp

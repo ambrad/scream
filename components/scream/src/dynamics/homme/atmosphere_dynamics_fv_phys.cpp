@@ -72,7 +72,6 @@ void HommeDynamics::fv_phys_initialize_impl () {
 // T,uv tendencies: Map F(T,M)_phys to Homme's F(T,M) tendency arrays.
 void HommeDynamics::fv_phys_pre_process () {
   if (not fv_phys_active()) return;
-  fprintf(stderr,"amb> fv_phys_pre_process\n");
   remap_fv_phys_to_dyn();
 }
 
@@ -81,14 +80,12 @@ void HommeDynamics::fv_phys_pre_process () {
 // update_pressure to update p_mid,int.
 void HommeDynamics::fv_phys_post_process () {
   if (not fv_phys_active()) return;
-  fprintf(stderr,"amb> fv_phys_post_process\n");
   remap_dyn_to_fv_phys();
   update_pressure(m_phys_grid);
 }
 
 void HommeDynamics::remap_dyn_to_fv_phys () const {
   if (not fv_phys_active()) return;
-  fprintf(stderr,"amb> remap_dyn_to_fv_phys\n");
   const auto& c = Homme::Context::singleton();
   auto& gfr = c.get<Homme::GllFvRemap>();
   const auto time_idx = c.get<Homme::TimeLevel>().n0;
@@ -125,12 +122,10 @@ void HommeDynamics::remap_dyn_to_fv_phys () const {
 
   gfr.run_dyn_to_fv_phys(time_idx, ps, phis, T, omega, uv, q, &dp);
   Kokkos::fence();
-  fprintf(stderr,"amb> remap_dyn_to_fv_phys done\n");
 }
 
 void HommeDynamics::remap_fv_phys_to_dyn () const {
   if (not fv_phys_active()) return;
-  fprintf(stderr,"amb> remap_fv_phys_to_dyn\n");
   const auto& c = Homme::Context::singleton();
   auto& gfr = c.get<Homme::GllFvRemap>();
   const auto time_idx = c.get<Homme::TimeLevel>().n0;
@@ -162,7 +157,6 @@ void HommeDynamics::remap_fv_phys_to_dyn () const {
   gfr.run_fv_phys_to_dyn(time_idx, T, uv, q);
   Kokkos::fence();
   gfr.run_fv_phys_to_dyn_dss();
-  fprintf(stderr,"amb> remap_fv_phys_to_dyn done\n");
 }
 
 } // namespace scream
