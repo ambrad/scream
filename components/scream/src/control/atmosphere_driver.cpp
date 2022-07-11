@@ -111,7 +111,7 @@ set_params(const ekat::ParameterList& atm_params)
 
   m_ad_status |= s_params_set;
 
-  fvphyshack = m_atm_params.sublist("Grids Manager").get<bool>("fvphyshack", false);
+  fvphyshack = m_atm_params.sublist("Grids Manager").get<std::string>("Reference Grid") == "Physics PG2";
   fprintf(stderr,"amb> fvphyshack %d\n", int(fvphyshack));
 }
 
@@ -206,6 +206,7 @@ void AtmosphereDriver::create_fields()
   // required/computed fields and groups. Let them register them in the FM
   for (auto it : m_grids_manager->get_repo()) {
     auto grid = it.second;
+    fprintf(stderr,"amb> AD FM alloc grid %s\n",grid->name().c_str());
     m_field_mgrs[grid->name()] = std::make_shared<field_mgr_type>(grid);
     m_field_mgrs[grid->name()]->registration_begins();
   }
@@ -914,13 +915,20 @@ void AtmosphereDriver::initialize_atm_procs ()
   // Initialize the processes
   m_atm_process_group->initialize(m_current_ts, restarted_run ? RunType::Restarted : RunType::Initial);
 
+  if (fvphyshack) {
+    // [CGLL ICs in pg2] See related notes in atmosphere_dynamics.cpp.
+    const auto gn = "Physics GLL";
+    m_field_mgrs[gn]->clean_up();
+    m_field_mgrs.erase(gn);
+  }
+
   m_ad_status |= s_procs_inited;
 
   stop_timer("EAMxx::initialize_atm_procs");
   stop_timer("EAMxx::init");
   m_atm_logger->info("[EAMXX] initialize_atm_procs ... done!");
 
-  //amb report_res_dep_memory_footprint ();
+  report_res_dep_memory_footprint ();
 }
 
 void AtmosphereDriver::

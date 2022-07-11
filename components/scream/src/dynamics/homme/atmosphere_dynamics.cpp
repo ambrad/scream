@@ -172,9 +172,11 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
   add_field<Computed>("p_mid",         FL({COL,     LEV},{ncols,  nlev_mid}),Pa,    pgn,N);
   add_field<Computed>("omega",         FL({COL,     LEV},{ncols,  nlev_mid}),Pa/s,  pgn,N);
   add_group<Updated>("tracers",pgn,N, Bundling::Required);
-  if (m_phys_grid != m_cgll_grid) {
-    // Read CGLL IC data even though our in/out format is pgN. Would be good to
-    // delete these fields after reading the ICs.
+  if (fv_phys_active()) {
+    // [CGLL ICs in pg2] Read CGLL IC data even though our in/out format is
+    // pgN. I don't want to read these directly from the netcdf file because
+    // doing so may conflict with additional IC mechanisms in the AD, e.g.,
+    // init'ing a field to a constant.
     const auto& rgn = m_cgll_grid->name();
     const auto nc = m_cgll_grid->get_num_local_dofs();
     add_field<Required>("horiz_winds",   FL({COL,CMP, LEV},{nc,2,nlev_mid}),m/s,   rgn,N);
@@ -428,8 +430,14 @@ void HommeDynamics::initialize_impl (const RunType run_type)
       FM_phys(icol,0,ilev) = horiz_winds(icol,0,ilev);
       FM_phys(icol,1,ilev) = horiz_winds(icol,1,ilev);
     });
-    //amb Maybe hack in something here using get_fields/groups_in to delete the
-    // ref_grid fields.
+    // [CGLL ICs in pg2] Remove the CGLL fields from the process. The AD has a
+    // separate fvphyshack-based line to remove the whole CGLL FM. The intention
+    // is to clear the view memory on the device, but I don't know if these two
+    // steps are enough.
+    const auto& rgn = m_cgll_grid->name();
+    for (const auto& f : {"horiz_winds", "T_mid", "pseudo_density", "ps", "phis"})
+      remove_field(f, rgn);
+    remove_group("tracers", rgn);
   }
 
   // Set up field property checks
