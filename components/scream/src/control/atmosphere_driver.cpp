@@ -338,11 +338,18 @@ void AtmosphereDriver::create_fields()
   // the internal fields/groups, and mark them as part of the RESTART group.
   for (const auto& f : m_atm_process_group->get_fields_in()) {
     const auto& fid = f.get_header().get_identifier();
-    auto fm = get_field_mgr(fid.get_grid_name());
+    const auto& gn = fid.get_grid_name();
+    if (fvphyshack and gn == "Physics CGLL") {
+      // CGLL is used only in the IC field for Homme.
+      continue;
+    }
+    auto fm = get_field_mgr(gn);
     fm->add_to_group(fid.name(),"RESTART");
   }
   for (const auto& g : m_atm_process_group->get_groups_in()) {
-    auto fm = get_field_mgr(g.grid_name());
+    const auto& gn = g.grid_name();
+    auto fm = get_field_mgr(gn);
+    if (fvphyshack and gn == "Physics CGLL") continue; // see above
     if (g.m_bundle) {
       fm->add_to_group(g.m_bundle->get_header().get_identifier().name(),"RESTART");
     } else {
@@ -378,16 +385,24 @@ void AtmosphereDriver::initialize_output_managers () {
   // OM of all the requested outputs.
 
   // Check for model restart output
-  if (not fvphyshack && io_params.isSublist("Model Restart")) {
+  if (io_params.isSublist("Model Restart")) {
     auto restart_pl = io_params.sublist("Model Restart");
     // Signal that this is not a normal output, but the model restart one
     m_output_managers.emplace_back();
     auto& om = m_output_managers.back();
-    om.setup(m_atm_comm,restart_pl,m_field_mgrs,m_grids_manager,m_run_t0,m_case_t0,true);
-  } else {
-    fprintf(stderr,"amb> atmosphere_driver skip Model Restart\n");
+    if (fvphyshack) {
+      // Don't save CGLL fields from ICs to the restart file.
+      std::map<std::string,field_mgr_ptr> fms;
+      for (auto& it : m_field_mgrs) {
+        if (it.first == "Physics GLL") continue;
+        fms[it.first] = it.second;
+      }
+      om.setup(m_atm_comm,restart_pl,         fms,m_grids_manager,m_run_t0,m_case_t0,true);
+    } else {
+      om.setup(m_atm_comm,restart_pl,m_field_mgrs,m_grids_manager,m_run_t0,m_case_t0,true);
+    }
   }
-
+  
   // Build one manager per output yaml file
   using vos_t = std::vector<std::string>;
   const auto& output_yaml_files = io_params.get<vos_t>("Output YAML Files",vos_t{});
