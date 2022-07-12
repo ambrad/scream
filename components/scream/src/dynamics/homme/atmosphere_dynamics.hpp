@@ -85,6 +85,7 @@ protected:
   void fv_phys_set_grids();
   void fv_phys_requested_buffer_size_in_bytes() const;
   void fv_phys_initialize_impl();
+  void fv_phys_dyn_to_fv_phys();
   void fv_phys_pre_process();
   void fv_phys_post_process();
 public:

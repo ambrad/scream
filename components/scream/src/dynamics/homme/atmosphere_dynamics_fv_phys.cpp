@@ -68,6 +68,24 @@ void HommeDynamics::fv_phys_initialize_impl () {
   gfr_init_hxx();
 }
 
+void HommeDynamics::fv_phys_dyn_to_fv_phys () {
+  remap_dyn_to_fv_phys();
+  update_pressure(m_phys_grid);
+  const auto ncols = m_phys_grid->get_num_local_dofs();
+  const auto nlevs = m_phys_grid->get_num_vertical_levels();
+  const auto& pgn = m_phys_grid->name();
+  m_helper_fields.at("FT_phys").deep_copy(get_field_in("T_mid",pgn));
+  auto FM_phys = m_helper_fields.at("FM_phys").get_view<Real***>();
+  auto horiz_winds = get_field_in("horiz_winds",pgn).get_view<const Real***>();
+  Kokkos::parallel_for(Kokkos::RangePolicy<>(0,ncols*nlevs),
+                       KOKKOS_LAMBDA (const int idx) {
+    const int icol = idx / nlevs;
+    const int ilev = idx % nlevs;
+    FM_phys(icol,0,ilev) = horiz_winds(icol,0,ilev);
+    FM_phys(icol,1,ilev) = horiz_winds(icol,1,ilev);
+  });
+}
+
 // Q state: Map get_group_in("tracers", gn) to Homme's FQ.
 // T,uv tendencies: Map F(T,M)_phys to Homme's F(T,M) tendency arrays.
 void HommeDynamics::fv_phys_pre_process () {

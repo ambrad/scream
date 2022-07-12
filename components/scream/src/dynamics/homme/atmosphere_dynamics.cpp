@@ -416,20 +416,7 @@ void HommeDynamics::initialize_impl (const RunType run_type)
   prim_init_model_f90 ();
 
   if (fv_phys_active()) {
-    remap_dyn_to_fv_phys();
-    update_pressure(m_phys_grid);
-    const auto ncols = m_phys_grid->get_num_local_dofs();
-    const auto& pgn = m_phys_grid->name();
-    m_helper_fields.at("FT_phys").deep_copy(get_field_in("T_mid",pgn));
-    auto FM_phys = m_helper_fields.at("FM_phys").get_view<Real***>();
-    auto horiz_winds = get_field_in("horiz_winds",pgn).get_view<const Real***>();
-    Kokkos::parallel_for(Kokkos::RangePolicy<>(0,ncols*nlevs),
-                         KOKKOS_LAMBDA (const int idx) {
-      const int icol = idx / nlevs;
-      const int ilev = idx % nlevs;
-      FM_phys(icol,0,ilev) = horiz_winds(icol,0,ilev);
-      FM_phys(icol,1,ilev) = horiz_winds(icol,1,ilev);
-    });
+    fv_phys_dyn_to_fv_phys();
     // [CGLL ICs in pg2] Remove the CGLL fields from the process. The AD has a
     // separate fvphyshack-based line to remove the whole CGLL FM. The intention
     // is to clear the view memory on the device, but I don't know if these two
@@ -931,8 +918,6 @@ void HommeDynamics::restart_homme_state () {
         "  - field name: " + f.get_header().get_identifier().name() + "\n");
   }
 
-  EKAT_ASSERT_MSG(not fv_phys_active(), "amb> physgrid restart not working");
-
   constexpr int N = HOMMEXX_PACK_SIZE;
   using Pack = ekat::Pack<Real,N>;
   using KT = KokkosTypes<DefaultDevice>;
@@ -940,10 +925,10 @@ void HommeDynamics::restart_homme_state () {
   using PF = PhysicsFunctions<DefaultDevice>;
 
   const auto& dgn = m_dyn_grid->name();
-  const auto& rgn = m_phys_grid->name();
+  const auto& pgn = m_phys_grid->name();
 
   // All internal fields should have been read from restart file.
-  // We need to remap Q_dyn, v_dyn, w_dyn, T_dyn back to ref grid,
+  // We need to remap Q_dyn, v_dyn, w_dyn, T_dyn back to phys grid,
   // to handle the backing out of the tendencies
   // Note: Q_ref only in case of ftype!=FORCING_0.
   // TODO: p2d remapper does not support subfields, so we need to create temps
@@ -969,7 +954,8 @@ void HommeDynamics::restart_homme_state () {
   //       Another field we need is dp3d(ref), but Homme *CHECKS* that no other atm proc updates
   //       dp3d(ref), so the value read from restart file *coincides* with the value at the end
   //       of the last Homme run. So we can safely recompute pressure using dp(ref) as read from restart.
-  update_pressure(m_phys_grid);
+  if (not fv_phys_active())
+    update_pressure(m_phys_grid);
 
   // Copy all restarted dyn states on all timelevels.
   copy_dyn_states_to_all_timelevels ();
@@ -999,49 +985,55 @@ void HommeDynamics::restart_homme_state () {
   //       you could remap v_dyn into the proper slice of FM_ref,
   //       and do away with uv_prev.
   using namespace ShortFieldTagsNames;
-  create_helper_field("uv_prev",{COL,CMP,LEV},{ncols,2,nlevs},rgn);
-
-  m_ic_remapper->registration_begins();
-  m_ic_remapper->register_field(m_helper_fields.at("FT_phys"),m_helper_fields.at("vtheta_dp_dyn"));
-  m_ic_remapper->register_field(m_helper_fields.at("uv_prev"),m_helper_fields.at("v_dyn"));
+  create_helper_field("uv_prev",{COL,CMP,LEV},{ncols,2,nlevs},pgn);
   auto qv_prev_ref = std::make_shared<Field>();
-  auto Q_dyn = m_helper_fields.at("Q_dyn");
-  if (params.ftype==Homme::ForcingAlg::FORCING_2) {
-    // Recall, we store Q_old in FQ_ref, and do FQ_ref = Q_new - FQ_ref during pre-process
-    // Q_old is the tracers at the end of last dyn step, which we can recompute by remapping
-    // Q_dyn (which was part of the restart file) to the ref grid.
-    auto Q_old = m_helper_fields.at("FQ_phys");  
-    m_ic_remapper->register_field(Q_old,Q_dyn);
-
-    // Grab qv_ref_old from Q_old
-    *qv_prev_ref = Q_old.get_component(0);
+  if (fv_phys_active()) {
+    fv_phys_dyn_to_fv_phys();
   } else {
-    // NOTE: we need the end-of-homme-step qv on the ref grid, to do the Theta->T conversion
-    //       to compute T_prev *in the same way as homme_post_process* did in the original run.
-    //       If PD remapper supported subfields, we would not need qv_prev_dyn, and could use
-    //       the proper subfield of Q_dyn instead.
-    create_helper_field("qv_prev_phys",{COL,LEV},{ncols,nlevs},rgn);
-    create_helper_field("qv_prev_dyn",{EL,GP,GP,LEV},{nelem,NGP,NGP,nlevs},dgn);
-    m_ic_remapper->register_field(m_helper_fields.at("qv_prev_phys"),m_helper_fields.at("qv_prev_dyn"));
+    m_ic_remapper->registration_begins();
+    m_ic_remapper->register_field(m_helper_fields.at("FT_phys"),m_helper_fields.at("vtheta_dp_dyn"));
+    m_ic_remapper->register_field(m_helper_fields.at("uv_prev"),m_helper_fields.at("v_dyn"));
+    auto Q_dyn = m_helper_fields.at("Q_dyn");
+    if (params.ftype==Homme::ForcingAlg::FORCING_2) {
+      // Recall, we store Q_old in FQ_ref, and do FQ_ref = Q_new - FQ_ref during pre-process
+      // Q_old is the tracers at the end of last dyn step, which we can recompute by remapping
+      // Q_dyn (which was part of the restart file) to the ref grid.
+      auto Q_old = m_helper_fields.at("FQ_phys");  
+      m_ic_remapper->register_field(Q_old,Q_dyn);
 
-    // Copy qv from the qsize-sized Q_dyn array, to the individual-tracer field qv_prev_dyn.
-    auto qv_prev_dyn = m_helper_fields.at("qv_prev_dyn");
-    qv_prev_dyn.deep_copy(Q_dyn.get_component(0));
+      // Grab qv_ref_old from Q_old
+      *qv_prev_ref = Q_old.get_component(0);
+    } else {
+      // NOTE: we need the end-of-homme-step qv on the ref grid, to do the Theta->T conversion
+      //       to compute T_prev *in the same way as homme_post_process* did in the original run.
+      //       If PD remapper supported subfields, we would not need qv_prev_dyn, and could use
+      //       the proper subfield of Q_dyn instead.
+      create_helper_field("qv_prev_phys",{COL,LEV},{ncols,nlevs},pgn);
+      create_helper_field("qv_prev_dyn",{EL,GP,GP,LEV},{nelem,NGP,NGP,nlevs},dgn);
+      m_ic_remapper->register_field(m_helper_fields.at("qv_prev_phys"),m_helper_fields.at("qv_prev_dyn"));
 
-    *qv_prev_ref = m_helper_fields.at("qv_prev_phys");
+      // Copy qv from the qsize-sized Q_dyn array, to the individual-tracer field qv_prev_dyn.
+      auto qv_prev_dyn = m_helper_fields.at("qv_prev_dyn");
+      qv_prev_dyn.deep_copy(Q_dyn.get_component(0));
+
+      *qv_prev_ref = m_helper_fields.at("qv_prev_phys");
+    }
+    m_ic_remapper->registration_ends();
+    m_ic_remapper->remap(/*forward = */false);
   }
-  m_ic_remapper->registration_ends();
-  m_ic_remapper->remap(/*forward = */false);
   m_ic_remapper = nullptr; // Can clean up the IC remapper now.
 
-  // Copy uv_prev into FM_ref. Also, FT_ref contains vtheta_dp,
+  // Copy uv_prev into FM_phys. Also, FT_phys contains vtheta_dp,
   // so convert it to actual temperature
   auto uv_view     = m_helper_fields.at("uv_prev").get_view<Pack***>();
   auto V_prev_view = m_helper_fields.at("FM_phys").get_view<Pack***>();
   auto T_prev_view = m_helper_fields.at("FT_phys").get_view<Pack**>();
-  auto dp_view     = get_field_in("pseudo_density",rgn).get_view<const Pack**>();
+  auto dp_view     = get_field_in("pseudo_density",pgn).get_view<const Pack**>();
   auto p_mid_view  = get_field_out("p_mid").get_view<Pack**>();
-  auto qv_view     = qv_prev_ref->get_view<Pack**>();
+  auto qv_view     = (fv_phys_active() ?
+                      get_field_in("qv",pgn).get_view<Pack**>() :
+                      qv_prev_ref->get_view<Pack**>());
+  auto do_uv = not fv_phys_active();
 
   const auto policy = ESU::get_default_team_policy(ncols,npacks);
   Kokkos::parallel_for(policy, KOKKOS_LAMBDA (const KT::MemberType& team){
@@ -1052,9 +1044,11 @@ void HommeDynamics::restart_homme_state () {
 
     Kokkos::parallel_for(Kokkos::TeamThreadRange(team,npacks),
                          [&](const int& ilev) {
-      // Init v_prev from uv and, possibly, w
-      V_prev_view(icol,0,ilev) = uv_view(icol,0,ilev);
-      V_prev_view(icol,1,ilev) = uv_view(icol,1,ilev);
+      if (do_uv) {
+       // Init v_prev from uv and, possibly, w
+        V_prev_view(icol,0,ilev) = uv_view(icol,0,ilev);
+        V_prev_view(icol,1,ilev) = uv_view(icol,1,ilev);
+      }
 
       // T_prev as of now contains vtheta_dp. Convert to temperature
       auto& T_prev = T_prev_view(icol,ilev);
