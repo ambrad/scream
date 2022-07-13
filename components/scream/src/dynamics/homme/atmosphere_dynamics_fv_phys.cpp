@@ -87,7 +87,7 @@ void HommeDynamics::fv_phys_dyn_to_fv_phys () {
   const auto uv = get_field_out("horiz_winds",pgn).get_view<const Pack***>();
   const auto FT = m_helper_fields.at("FT_phys").get_view<Pack**>();
   const auto FM = m_helper_fields.at("FM_phys").get_view<Pack***>();
-  const auto policy = ESU::get_thread_range_parallel_scan_team_policy(ncols,npacks);
+  const auto policy = ESU::get_default_team_policy(ncols,npacks);
   Kokkos::parallel_for(policy, KOKKOS_LAMBDA (const KT::MemberType& team) {
     const int& icol = team.league_rank();
     Kokkos::parallel_for(Kokkos::TeamThreadRange(team,npacks),
@@ -95,6 +95,7 @@ void HommeDynamics::fv_phys_dyn_to_fv_phys () {
       FT(icol,ilev) = T(icol,ilev);
       FM(icol,0,ilev) = uv(icol,0,ilev);
       FM(icol,1,ilev) = uv(icol,1,ilev);
+      FM(icol,2,ilev) = 0;
     });
   });
   Kokkos::fence();
@@ -170,10 +171,6 @@ void HommeDynamics::remap_fv_phys_to_dyn () const {
 
   const auto uv_ndim = m_helper_fields.at("FM_phys").get_view<const Real***>().extent_int(1);
   assert(uv_ndim == 2 or uv_ndim == 3);
-  // FM in Homme includes a component for omega, but the physics don't modify
-  // omega. Thus, zero FM so that the third component is 0.
-  const auto& forcing = c.get<Homme::ElementsForcing>();
-  Kokkos::deep_copy(forcing.m_fm, 0);
 
   const auto T = Homme::GllFvRemap::CPhys2T(
     m_helper_fields.at("FT_phys").get_view<const Real**>().data(),
