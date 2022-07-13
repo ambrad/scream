@@ -552,23 +552,16 @@ void AtmosphereDriver::restart_model ()
 {
   m_atm_logger->info("  [EAMXX] restart_model ...");
 
-  fprintf(stderr,"amb> restart_model 1\n");
-
   // First, figure out the name of the netcdf file containing the restart data
   const auto& casename = m_atm_params.sublist("Initial Conditions").get<std::string>("Restart Casename");
   auto filename = find_filename_in_rpointer (casename,true,m_atm_comm,m_run_t0);
-
-  fprintf(stderr,"amb> restart_model 2\n");
 
   // Restart the num steps counter in the atm time stamp
   ekat::ParameterList rest_pl;
   rest_pl.set<std::string>("Filename",filename);
   AtmosphereInput model_restart(m_atm_comm,rest_pl);
 
-  fprintf(stderr,"amb> restart_model 3\n");
-
   for (auto& it : m_field_mgrs) {
-    fprintf(stderr,"amb> restart_model %s\n",it.second->get_grid()->name().c_str());
     if (fvphyshack and it.second->get_grid()->name() == "Physics GLL") continue;
     if (not it.second->has_group("RESTART")) {
       // No field needs to be restarted on this grid.
@@ -582,15 +575,11 @@ void AtmosphereDriver::restart_model ()
     read_fields_from_file (fnames,it.first,filename,m_current_ts);
   }
 
-  fprintf(stderr,"amb> restart_model 4\n");
-
   // Read number of steps from restart file
   int nsteps = model_restart.read_int_scalar("nsteps");
   m_current_ts.set_num_steps(nsteps);
   m_case_t0.set_num_steps(nsteps);
   m_run_t0.set_num_steps(nsteps);
-
-  fprintf(stderr,"amb> restart_model 5\n");
 
   // Close files and finalize all pio data structs
   model_restart.finalize();
@@ -673,7 +662,7 @@ void AtmosphereDriver::set_initial_conditions ()
     fprintf(stderr,"amb> atmosphere_driver process_ic_field gn %s f %s fid %s\n",
             grid_name.c_str(), f.name().c_str(), fname.c_str());
 
-    if (fvphyshack && grid_name == "Physics PG2") return;
+    if (fvphyshack and grid_name == "Physics PG2") return;
 
     // First, check if the input file contains constant values for some of the fields
     if (ic_pl_grid.isParameter(fname)) {
@@ -699,6 +688,17 @@ void AtmosphereDriver::set_initial_conditions ()
         auto& this_grid_ic_fnames = ic_fields_names[grid_name];
         if (not ekat::contains(this_grid_ic_fnames,fname)) {
           this_grid_ic_fnames.push_back(fname);
+        }
+      } else if (fvphyshack and grid_name == "Physics GLL") {
+        // [CGLL ICs in pg2] I tried doing something like this in
+        // HommeDynamics::set_grids, but I couldn't find the means to get the
+        // list of fields. I think the issue is that you can't access group
+        // objects until some registration period ends. So instead do it here,
+        // where the list is definitely avaiable.
+        auto& this_grid_ic_fnames = ic_fields_names[grid_name];
+        for (const auto& e : c) {
+          const auto f = e.lock();
+          this_grid_ic_fnames.push_back(f->get_identifier().name());
         }
       }
     }
