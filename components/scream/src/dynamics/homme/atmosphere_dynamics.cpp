@@ -679,90 +679,71 @@ void HommeDynamics::homme_post_process () {
     get_internal_field("w_int_dyn").get_header().get_alloc_properties().reset_subview_idx(tl.n0);
   }
 
+  if (fv_phys_active()) return;
+
   const auto ncols = m_phys_grid->get_num_local_dofs();
   const auto nlevs = m_phys_grid->get_num_vertical_levels();
   const auto npacks= ekat::PackInfo<N>::num_packs(nlevs);
-  if (fv_phys_active()) {
-    // Copy current physics T,uv state to FT,M to form tendencies in next
-    // dynamics step.
-    const auto T  = get_field_out("T_mid",pgn).get_view<const Pack**>();
-    const auto uv = get_field_out("horiz_winds",pgn).get_view<const Pack***>();
-    const auto FT = m_helper_fields.at("FT_phys").get_view<Pack**>();
-    const auto FM = m_helper_fields.at("FM_phys").get_view<Pack***>();
-    using ESU = ekat::ExeSpaceUtils<KT::ExeSpace>;
-    const auto policy = ESU::get_thread_range_parallel_scan_team_policy(ncols,npacks);
-    Kokkos::parallel_for(policy, KOKKOS_LAMBDA (const KT::MemberType& team) {
-      const int& icol = team.league_rank();
-      Kokkos::parallel_for(Kokkos::TeamThreadRange(team,npacks),
-                           [&](const int ilev) {
-        FT(icol,ilev) = T(icol,ilev);
-        FM(icol,0,ilev) = uv(icol,0,ilev);
-        FM(icol,1,ilev) = uv(icol,1,ilev);
-      });
+  // Convert VTheta_dp->T, store T,uv, and possibly w in FT, FM,
+  // compute p_int on physics grid.
+  const auto dp_view = get_field_out("pseudo_density",pgn).get_view<Pack**>();
+  const auto p_mid_view = get_field_out("p_mid",pgn).get_view<Pack**>();
+  const auto p_int_view = get_field_out("p_int",pgn).get_view<Pack**>();
+  const auto Q_view   = get_group_out("Q",pgn).m_bundle->get_view<Pack***>();
+
+  const auto T_view  = get_field_out("T_mid",pgn).get_view<Pack**>();
+  const auto v_view  = get_field_out("horiz_winds",pgn).get_view<Pack***>();
+  const auto T_prev_view = m_helper_fields.at("FT_phys").get_view<Pack**>();
+  const auto V_prev_view = m_helper_fields.at("FM_phys").get_view<Pack***>();
+
+  using ESU = ekat::ExeSpaceUtils<KT::ExeSpace>;
+  const auto policy = ESU::get_thread_range_parallel_scan_team_policy(ncols,npacks);
+
+  // Establish the boundary condition for the TOA
+  const auto& hvcoord = c.get<Homme::HybridVCoord>();
+  const auto ps0 = hvcoord.ps0 * hvcoord.hybrid_ai0;
+
+  Kokkos::parallel_for(policy, KOKKOS_LAMBDA (const KT::MemberType& team) {
+    const int& icol = team.league_rank();
+
+    // Compute p_int and p_mid
+    auto dp = ekat::subview(dp_view,icol);
+    auto p_mid = ekat::subview(p_mid_view,icol);
+    auto p_int = ekat::subview(p_int_view,icol);
+
+    ColOps::column_scan<true>(team,nlevs,dp,p_int,ps0);
+    team.team_barrier();
+    ColOps::compute_midpoint_values(team,nlevs,p_int,p_mid);
+    team.team_barrier();
+
+    // Convert VTheta_dp->VTheta->Theta->T
+    auto T   = ekat::subview(T_view,icol);
+    auto v   = ekat::subview(v_view,icol);
+    auto qv  = ekat::subview(Q_view,icol,0);
+
+    auto T_prev = ekat::subview(T_prev_view,icol);
+    auto V_prev = ekat::subview(V_prev_view,icol);
+
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(team,npacks),
+                         [&](const int ilev) {
+      // VTheta_dp->VTheta->Theta->T
+      auto& T_val = T(ilev);
+      T_val /= dp(ilev);
+      T_val = PF::calculate_temperature_from_virtual_temperature(T_val,qv(ilev));
+      T_val = PF::calculate_T_from_theta(T_val,p_mid(ilev));
+
+      // Store T, v (and possibly w) at end of the dyn timestep (to back out tendencies later)
+      T_prev(ilev) = T_val;
+      V_prev(0,ilev) = v(0,ilev);
+      V_prev(1,ilev) = v(1,ilev);
     });
-    Kokkos::fence();
-  } else {
-    // Convert VTheta_dp->T, store T,uv, and possibly w in FT, FM,
-    // compute p_int on physics grid.
-    const auto dp_view = get_field_out("pseudo_density",pgn).get_view<Pack**>();
-    const auto p_mid_view = get_field_out("p_mid",pgn).get_view<Pack**>();
-    const auto p_int_view = get_field_out("p_int",pgn).get_view<Pack**>();
-    const auto Q_view   = get_group_out("Q",pgn).m_bundle->get_view<Pack***>();
+  });
 
-    const auto T_view  = get_field_out("T_mid",pgn).get_view<Pack**>();
-    const auto v_view  = get_field_out("horiz_winds",pgn).get_view<Pack***>();
-    const auto T_prev_view = m_helper_fields.at("FT_phys").get_view<Pack**>();
-    const auto V_prev_view = m_helper_fields.at("FM_phys").get_view<Pack***>();
-
-    using ESU = ekat::ExeSpaceUtils<KT::ExeSpace>;
-    const auto policy = ESU::get_thread_range_parallel_scan_team_policy(ncols,npacks);
-
-    // Establish the boundary condition for the TOA
-    const auto& hvcoord = c.get<Homme::HybridVCoord>();
-    const auto ps0 = hvcoord.ps0 * hvcoord.hybrid_ai0;
-
-    Kokkos::parallel_for(policy, KOKKOS_LAMBDA (const KT::MemberType& team) {
-      const int& icol = team.league_rank();
-
-      // Compute p_int and p_mid
-      auto dp = ekat::subview(dp_view,icol);
-      auto p_mid = ekat::subview(p_mid_view,icol);
-      auto p_int = ekat::subview(p_int_view,icol);
-
-      ColOps::column_scan<true>(team,nlevs,dp,p_int,ps0);
-      team.team_barrier();
-      ColOps::compute_midpoint_values(team,nlevs,p_int,p_mid);
-      team.team_barrier();
-
-      // Convert VTheta_dp->VTheta->Theta->T
-      auto T   = ekat::subview(T_view,icol);
-      auto v   = ekat::subview(v_view,icol);
-      auto qv  = ekat::subview(Q_view,icol,0);
-
-      auto T_prev = ekat::subview(T_prev_view,icol);
-      auto V_prev = ekat::subview(V_prev_view,icol);
-
-      Kokkos::parallel_for(Kokkos::TeamThreadRange(team,npacks),
-                           [&](const int ilev) {
-        // VTheta_dp->VTheta->Theta->T
-        auto& T_val = T(ilev);
-        T_val /= dp(ilev);
-        T_val = PF::calculate_temperature_from_virtual_temperature(T_val,qv(ilev));
-        T_val = PF::calculate_T_from_theta(T_val,p_mid(ilev));
-
-        // Store T, v (and possibly w) at end of the dyn timestep (to back out tendencies later)
-        T_prev(ilev) = T_val;
-        V_prev(0,ilev) = v(0,ilev);
-        V_prev(1,ilev) = v(1,ilev);
-      });
-    });
-
-    // If ftype==FORCING_2, also set FQ_ref=Q_ref. Next step's Q_dyn will be set
-    // as Q_dyn = Q_dyn_old + PD_remap(Q_ref-Q_ref_old)
-    const auto ftype = params.ftype;
-    if (ftype==Homme::ForcingAlg::FORCING_2) {
-      m_helper_fields.at("FQ_phys").deep_copy(*get_group_out("Q",pgn).m_bundle);
-    }
+  // If ftype==FORCING_2, also set FQ_ref=Q_ref. Next step's Q_dyn will be set
+  // as Q_dyn = Q_dyn_old + PD_remap(Q_ref-Q_ref_old)
+  const auto ftype = params.ftype;
+  if (ftype==Homme::ForcingAlg::FORCING_2) {
+    m_helper_fields.at("FQ_phys").deep_copy(*get_group_out("Q",pgn).m_bundle);
   }
 }
 
@@ -910,6 +891,8 @@ void HommeDynamics::init_homme_views () {
 }
 
 void HommeDynamics::restart_homme_state () {
+  fprintf(stderr,"amb> restart_homme_state\n");
+  
   // Safety checks: internal fields *should* have been restarted (and therefore have a valid timestamp)
   for (auto& f : get_internal_fields()) {
     auto ts = f.get_header().get_tracking().get_time_stamp();
@@ -981,46 +964,47 @@ void HommeDynamics::restart_homme_state () {
     Q_dyn_view(ie,iq,ip,jp,k) = Qdp_dyn_view(ie,iq,ip,jp,k) / dp_dyn_view(ie,ip,jp,k);
   });
 
+  if (fv_phys_active()) {
+    m_ic_remapper = nullptr;
+    return;
+  }
+
   // TODO: if/when PD remapper supports remapping directly to/from subfields,
   //       you could remap v_dyn into the proper slice of FM_ref,
   //       and do away with uv_prev.
   using namespace ShortFieldTagsNames;
   create_helper_field("uv_prev",{COL,CMP,LEV},{ncols,2,nlevs},pgn);
   auto qv_prev_ref = std::make_shared<Field>();
-  if (fv_phys_active()) {
-    fv_phys_dyn_to_fv_phys();
+  m_ic_remapper->registration_begins();
+  m_ic_remapper->register_field(m_helper_fields.at("FT_phys"),m_helper_fields.at("vtheta_dp_dyn"));
+  m_ic_remapper->register_field(m_helper_fields.at("uv_prev"),m_helper_fields.at("v_dyn"));
+  auto Q_dyn = m_helper_fields.at("Q_dyn");
+  if (params.ftype==Homme::ForcingAlg::FORCING_2) {
+    // Recall, we store Q_old in FQ_ref, and do FQ_ref = Q_new - FQ_ref during pre-process
+    // Q_old is the tracers at the end of last dyn step, which we can recompute by remapping
+    // Q_dyn (which was part of the restart file) to the ref grid.
+    auto Q_old = m_helper_fields.at("FQ_phys");  
+    m_ic_remapper->register_field(Q_old,Q_dyn);
+
+    // Grab qv_ref_old from Q_old
+    *qv_prev_ref = Q_old.get_component(0);
   } else {
-    m_ic_remapper->registration_begins();
-    m_ic_remapper->register_field(m_helper_fields.at("FT_phys"),m_helper_fields.at("vtheta_dp_dyn"));
-    m_ic_remapper->register_field(m_helper_fields.at("uv_prev"),m_helper_fields.at("v_dyn"));
-    auto Q_dyn = m_helper_fields.at("Q_dyn");
-    if (params.ftype==Homme::ForcingAlg::FORCING_2) {
-      // Recall, we store Q_old in FQ_ref, and do FQ_ref = Q_new - FQ_ref during pre-process
-      // Q_old is the tracers at the end of last dyn step, which we can recompute by remapping
-      // Q_dyn (which was part of the restart file) to the ref grid.
-      auto Q_old = m_helper_fields.at("FQ_phys");  
-      m_ic_remapper->register_field(Q_old,Q_dyn);
+    // NOTE: we need the end-of-homme-step qv on the ref grid, to do the Theta->T conversion
+    //       to compute T_prev *in the same way as homme_post_process* did in the original run.
+    //       If PD remapper supported subfields, we would not need qv_prev_dyn, and could use
+    //       the proper subfield of Q_dyn instead.
+    create_helper_field("qv_prev_phys",{COL,LEV},{ncols,nlevs},pgn);
+    create_helper_field("qv_prev_dyn",{EL,GP,GP,LEV},{nelem,NGP,NGP,nlevs},dgn);
+    m_ic_remapper->register_field(m_helper_fields.at("qv_prev_phys"),m_helper_fields.at("qv_prev_dyn"));
 
-      // Grab qv_ref_old from Q_old
-      *qv_prev_ref = Q_old.get_component(0);
-    } else {
-      // NOTE: we need the end-of-homme-step qv on the ref grid, to do the Theta->T conversion
-      //       to compute T_prev *in the same way as homme_post_process* did in the original run.
-      //       If PD remapper supported subfields, we would not need qv_prev_dyn, and could use
-      //       the proper subfield of Q_dyn instead.
-      create_helper_field("qv_prev_phys",{COL,LEV},{ncols,nlevs},pgn);
-      create_helper_field("qv_prev_dyn",{EL,GP,GP,LEV},{nelem,NGP,NGP,nlevs},dgn);
-      m_ic_remapper->register_field(m_helper_fields.at("qv_prev_phys"),m_helper_fields.at("qv_prev_dyn"));
+    // Copy qv from the qsize-sized Q_dyn array, to the individual-tracer field qv_prev_dyn.
+    auto qv_prev_dyn = m_helper_fields.at("qv_prev_dyn");
+    qv_prev_dyn.deep_copy(Q_dyn.get_component(0));
 
-      // Copy qv from the qsize-sized Q_dyn array, to the individual-tracer field qv_prev_dyn.
-      auto qv_prev_dyn = m_helper_fields.at("qv_prev_dyn");
-      qv_prev_dyn.deep_copy(Q_dyn.get_component(0));
-
-      *qv_prev_ref = m_helper_fields.at("qv_prev_phys");
-    }
-    m_ic_remapper->registration_ends();
-    m_ic_remapper->remap(/*forward = */false);
+    *qv_prev_ref = m_helper_fields.at("qv_prev_phys");
   }
+  m_ic_remapper->registration_ends();
+  m_ic_remapper->remap(/*forward = */false);
   m_ic_remapper = nullptr; // Can clean up the IC remapper now.
 
   // Copy uv_prev into FM_phys. Also, FT_phys contains vtheta_dp,
@@ -1030,10 +1014,7 @@ void HommeDynamics::restart_homme_state () {
   auto T_prev_view = m_helper_fields.at("FT_phys").get_view<Pack**>();
   auto dp_view     = get_field_in("pseudo_density",pgn).get_view<const Pack**>();
   auto p_mid_view  = get_field_out("p_mid").get_view<Pack**>();
-  auto qv_view     = (fv_phys_active() ?
-                      get_field_in("qv",pgn).get_view<Pack**>() :
-                      qv_prev_ref->get_view<Pack**>());
-  auto do_uv = not fv_phys_active();
+  auto qv_view     = qv_prev_ref->get_view<Pack**>();
 
   const auto policy = ESU::get_default_team_policy(ncols,npacks);
   Kokkos::parallel_for(policy, KOKKOS_LAMBDA (const KT::MemberType& team){
@@ -1044,11 +1025,9 @@ void HommeDynamics::restart_homme_state () {
 
     Kokkos::parallel_for(Kokkos::TeamThreadRange(team,npacks),
                          [&](const int& ilev) {
-      if (do_uv) {
-       // Init v_prev from uv and, possibly, w
-        V_prev_view(icol,0,ilev) = uv_view(icol,0,ilev);
-        V_prev_view(icol,1,ilev) = uv_view(icol,1,ilev);
-      }
+      // Init v_prev from uv and, possibly, w
+      V_prev_view(icol,0,ilev) = uv_view(icol,0,ilev);
+      V_prev_view(icol,1,ilev) = uv_view(icol,1,ilev);
 
       // T_prev as of now contains vtheta_dp. Convert to temperature
       auto& T_prev = T_prev_view(icol,ilev);

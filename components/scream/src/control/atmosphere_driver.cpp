@@ -360,7 +360,9 @@ void AtmosphereDriver::create_fields()
   }
   for (const auto& f : m_atm_process_group->get_internal_fields()) {
     const auto& fid = f.get_header().get_identifier();
-    auto fm = get_field_mgr(fid.get_grid_name());
+    const auto& gn = fid.get_grid_name();
+    if (fvphyshack and gn == "Physics CGLL") continue; // see above
+    auto fm = get_field_mgr(gn);
     fm->add_to_group(fid.name(),"RESTART");
   }
 
@@ -550,16 +552,24 @@ void AtmosphereDriver::restart_model ()
 {
   m_atm_logger->info("  [EAMXX] restart_model ...");
 
+  fprintf(stderr,"amb> restart_model 1\n");
+
   // First, figure out the name of the netcdf file containing the restart data
   const auto& casename = m_atm_params.sublist("Initial Conditions").get<std::string>("Restart Casename");
   auto filename = find_filename_in_rpointer (casename,true,m_atm_comm,m_run_t0);
+
+  fprintf(stderr,"amb> restart_model 2\n");
 
   // Restart the num steps counter in the atm time stamp
   ekat::ParameterList rest_pl;
   rest_pl.set<std::string>("Filename",filename);
   AtmosphereInput model_restart(m_atm_comm,rest_pl);
 
+  fprintf(stderr,"amb> restart_model 3\n");
+
   for (auto& it : m_field_mgrs) {
+    fprintf(stderr,"amb> restart_model %s\n",it.second->get_grid()->name().c_str());
+    if (fvphyshack and it.second->get_grid()->name() == "Physics GLL") continue;
     if (not it.second->has_group("RESTART")) {
       // No field needs to be restarted on this grid.
       continue;
@@ -572,11 +582,15 @@ void AtmosphereDriver::restart_model ()
     read_fields_from_file (fnames,it.first,filename,m_current_ts);
   }
 
+  fprintf(stderr,"amb> restart_model 4\n");
+
   // Read number of steps from restart file
   int nsteps = model_restart.read_int_scalar("nsteps");
   m_current_ts.set_num_steps(nsteps);
   m_case_t0.set_num_steps(nsteps);
   m_run_t0.set_num_steps(nsteps);
+
+  fprintf(stderr,"amb> restart_model 5\n");
 
   // Close files and finalize all pio data structs
   model_restart.finalize();

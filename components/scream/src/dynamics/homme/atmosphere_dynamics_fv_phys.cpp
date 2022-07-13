@@ -17,6 +17,7 @@
 #include "ekat/kokkos/ekat_subview_utils.hpp"
 #include "ekat/ekat_pack.hpp"
 #include "ekat/ekat_pack_kokkos.hpp"
+#include "ekat/ekat_pack_utils.hpp"
 
 extern "C" void gfr_init_hxx();
 
@@ -69,21 +70,34 @@ void HommeDynamics::fv_phys_initialize_impl () {
 }
 
 void HommeDynamics::fv_phys_dyn_to_fv_phys () {
+  if (not fv_phys_active()) return;
   remap_dyn_to_fv_phys();
   update_pressure(m_phys_grid);
+  // Copy current physics T,uv state to FT,M to form tendencies in next
+  // dynamics step.
+  constexpr int N = HOMMEXX_PACK_SIZE;
+  using Pack = ekat::Pack<Real,N>;
+  using KT = KokkosTypes<DefaultDevice>;
+  using ESU = ekat::ExeSpaceUtils<KT::ExeSpace>;
   const auto ncols = m_phys_grid->get_num_local_dofs();
   const auto nlevs = m_phys_grid->get_num_vertical_levels();
+  const auto npacks = ekat::PackInfo<N>::num_packs(nlevs);
   const auto& pgn = m_phys_grid->name();
-  m_helper_fields.at("FT_phys").deep_copy(get_field_in("T_mid",pgn));
-  auto FM_phys = m_helper_fields.at("FM_phys").get_view<Real***>();
-  auto horiz_winds = get_field_in("horiz_winds",pgn).get_view<const Real***>();
-  Kokkos::parallel_for(Kokkos::RangePolicy<>(0,ncols*nlevs),
-                       KOKKOS_LAMBDA (const int idx) {
-    const int icol = idx / nlevs;
-    const int ilev = idx % nlevs;
-    FM_phys(icol,0,ilev) = horiz_winds(icol,0,ilev);
-    FM_phys(icol,1,ilev) = horiz_winds(icol,1,ilev);
+  const auto T  = get_field_out("T_mid",pgn).get_view<const Pack**>();
+  const auto uv = get_field_out("horiz_winds",pgn).get_view<const Pack***>();
+  const auto FT = m_helper_fields.at("FT_phys").get_view<Pack**>();
+  const auto FM = m_helper_fields.at("FM_phys").get_view<Pack***>();
+  const auto policy = ESU::get_thread_range_parallel_scan_team_policy(ncols,npacks);
+  Kokkos::parallel_for(policy, KOKKOS_LAMBDA (const KT::MemberType& team) {
+    const int& icol = team.league_rank();
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(team,npacks),
+                         [&](const int ilev) {
+      FT(icol,ilev) = T(icol,ilev);
+      FM(icol,0,ilev) = uv(icol,0,ilev);
+      FM(icol,1,ilev) = uv(icol,1,ilev);
+    });
   });
+  Kokkos::fence();
 }
 
 // Q state: Map get_group_in("tracers", gn) to Homme's FQ.
@@ -98,8 +112,7 @@ void HommeDynamics::fv_phys_pre_process () {
 // update_pressure to update p_mid,int.
 void HommeDynamics::fv_phys_post_process () {
   if (not fv_phys_active()) return;
-  remap_dyn_to_fv_phys();
-  update_pressure(m_phys_grid);
+  fv_phys_dyn_to_fv_phys();
 }
 
 void HommeDynamics::remap_dyn_to_fv_phys () const {
