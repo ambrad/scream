@@ -219,4 +219,38 @@ void HommeDynamics::remap_fv_phys_to_dyn () const {
   gfr.run_fv_phys_to_dyn_dss();
 }
 
+// [rrtmgp active gases] This is to address issue #1782. It supports option 1 in
+// that issue. fv_phys_rrtmgp_active_gases_* routines can be removed once trace
+// gases initialization is treated properly.
+
+struct TraceGasesWorkaround {
+  std::vector<std::string> active_gases; // other than h2o
+};
+
+static TraceGasesWorkaround s_tgw;
+
+void fv_phys_rrtmgp_active_gases_init (const ekat::ParameterList& p) {
+  const auto& v = p.sublist("atmosphere_processes").sublist("physics")
+    .sublist("rrtmgp").get<std::vector<std::string>>("active_gases");
+  for (const auto& e : v)
+    if (e != "h2o")
+      s_tgw.active_gases.push_back(e);
+}
+
+void HommeDynamics::fv_phys_rrtmgp_active_gases_init () {
+  using namespace ekat::units;
+  using namespace ShortFieldTagsNames;
+  auto kgkg = kg/kg;
+  kgkg.set_string("kg/kg");
+  const auto& rgn = m_cgll_grid->name();
+  const auto nc = m_cgll_grid->get_num_local_dofs();
+  const auto nlev = m_cgll_grid->get_num_vertical_levels();
+  constexpr int ps = SCREAM_SMALL_PACK_SIZE;
+  for (const auto& e : s_tgw.active_gases)
+    add_field<Required>(e, FieldLayout({COL,LEV},{nc,nlev}), kgkg, rgn, ps);
+}
+
+void HommeDynamics::fv_phys_rrtmgp_active_gases_remove_cgll_fields () {
+}
+
 } // namespace scream

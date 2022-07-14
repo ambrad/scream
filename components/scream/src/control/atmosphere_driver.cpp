@@ -122,6 +122,10 @@ set_params(const ekat::ParameterList& atm_params)
       pl.sublist("mac_aero_mic").sublist(c).set<std::string>("Grid", hgn);
     pl.sublist("rrtmgp").set<std::string>("Grid", hgn);
   }
+  if (fvphyshack) {
+    // See the [rrtmgp active gases] note in dynamics/homme/atmosphere_dynamics_fv_phys.cpp.
+    fv_phys_rrtmgp_active_gases_init(m_atm_params);
+  }
 }
 
 void AtmosphereDriver::

@@ -1,1 +1,3 @@
+namespace scream {
 bool fvphyshack;
+}

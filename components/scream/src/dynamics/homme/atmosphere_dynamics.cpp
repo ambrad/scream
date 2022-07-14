@@ -185,6 +185,7 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
     add_field<Required>("ps",            FL({COL         },{nc           }),Pa,    rgn);
     add_field<Required>("phis",          FL({COL         },{nc           }),m2/s2, rgn);
     add_group<Required>("tracers",rgn,N, Bundling::Required, DerivationType::Import, "tracers", pgn);
+    fv_phys_rrtmgp_active_gases_init();
   }
 
   // Dynamics grid states
@@ -431,6 +432,7 @@ void HommeDynamics::initialize_impl (const RunType run_type)
     for (const auto& f : {"horiz_winds", "T_mid", "pseudo_density", "ps", "phis"})
       remove_field(f, rgn);
     remove_group("tracers", rgn);
+    fv_phys_rrtmgp_active_gases_remove_cgll_fields();
   }
 
   // Set up field property checks
@@ -453,21 +455,6 @@ void HommeDynamics::initialize_impl (const RunType run_type)
   add_postcondition_check<FieldWithinIntervalCheck>(get_field_out("T_mid",pgn),m_phys_grid,140.0, 500.0,false);
   add_postcondition_check<FieldWithinIntervalCheck>(get_field_out("horiz_winds",pgn),m_phys_grid,-400.0, 400.0,false);
   add_postcondition_check<FieldWithinIntervalCheck>(get_field_out("ps"),m_phys_grid,40000.0, 110000.0,false);
-
-  for (int qi = 0; qi < 10; ++qi) {
-    const auto& c = Homme::Context::singleton();
-    const auto& tracers = c.get<Homme::Tracers>();
-    const auto& q = tracers.Q;
-    Real qmin = 1e30, qmax = -1e30;
-    for (int ie = 0; ie < q.extent_int(0); ++ie)
-      for (int i = 0; i < 4; ++i)
-        for (int j = 0; j < 4; ++j)
-          for (int k = 0; k < q.extent_int(4); ++k) {
-            qmin = std::min(qmin, q(ie,qi,i,j,k)[0]);
-            qmax = std::max(qmax, q(ie,qi,i,j,k)[0]);
-          }
-    fprintf(stderr,"amb> q %d %d %d qmin %1.2e qmax %1.2e\n",qi,q.extent_int(0),q.extent_int(4),qmin,qmax);
-  }
 }
 
 void HommeDynamics::run_impl (const int dt)
