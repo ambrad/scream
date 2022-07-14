@@ -409,18 +409,24 @@ void HommeDynamics::initialize_impl (const RunType run_type)
 
   // For BFB restarts, set nstep counter in Homme's TimeLevel to match
   // what's in the timestamp (which, for restarted runs, is read from restart file)
-  set_homme_param("num_steps",timestamp().get_num_steps());
-  Homme::Context::singleton().get<Homme::TimeLevel>().nstep = timestamp().get_num_steps();
+#pragma message "~*~ ~*~ ~*~ ~*~ ~*~ ~*~ ~*~ REMOVE ME PLEASE NOT FOR MERGING ~*~ ~*~ ~*~ ~*~ ~*~ ~*~ ~*~"
+  int fac = 6;
+  set_homme_param("num_steps",fac*timestamp().get_num_steps());
+  Homme::Context::singleton().get<Homme::TimeLevel>().nstep = fac*timestamp().get_num_steps();
 
   // Complete homme model initialization
   prim_init_model_f90 ();
 
   if (fv_phys_active()) {
-    fv_phys_dyn_to_fv_phys();
+    fv_phys_dyn_to_fv_phys(run_type != RunType::Initial);
     // [CGLL ICs in pg2] Remove the CGLL fields from the process. The AD has a
     // separate fvphyshack-based line to remove the whole CGLL FM. The intention
     // is to clear the view memory on the device, but I don't know if these two
     // steps are enough.
+    //   We might end up needing these fields, anyway, for dynamics
+    // output. Alternatively, it might be more efficient to make some of the
+    // dynamics helper fields Computed and output on the dynamics grid. Worse
+    // for I/O but better for device memory.
     const auto& rgn = m_cgll_grid->name();
     for (const auto& f : {"horiz_winds", "T_mid", "pseudo_density", "ps", "phis"})
       remove_field(f, rgn);
@@ -447,6 +453,21 @@ void HommeDynamics::initialize_impl (const RunType run_type)
   add_postcondition_check<FieldWithinIntervalCheck>(get_field_out("T_mid",pgn),m_phys_grid,140.0, 500.0,false);
   add_postcondition_check<FieldWithinIntervalCheck>(get_field_out("horiz_winds",pgn),m_phys_grid,-400.0, 400.0,false);
   add_postcondition_check<FieldWithinIntervalCheck>(get_field_out("ps"),m_phys_grid,40000.0, 110000.0,false);
+
+  for (int qi = 0; qi < 10; ++qi) {
+    const auto& c = Homme::Context::singleton();
+    const auto& tracers = c.get<Homme::Tracers>();
+    const auto& q = tracers.Q;
+    Real qmin = 1e30, qmax = -1e30;
+    for (int ie = 0; ie < q.extent_int(0); ++ie)
+      for (int i = 0; i < 4; ++i)
+        for (int j = 0; j < 4; ++j)
+          for (int k = 0; k < q.extent_int(4); ++k) {
+            qmin = std::min(qmin, q(ie,qi,i,j,k)[0]);
+            qmax = std::max(qmax, q(ie,qi,i,j,k)[0]);
+          }
+    fprintf(stderr,"amb> q %d %d %d qmin %1.2e qmax %1.2e\n",qi,q.extent_int(0),q.extent_int(4),qmin,qmax);
+  }
 }
 
 void HommeDynamics::run_impl (const int dt)

@@ -69,36 +69,68 @@ void HommeDynamics::fv_phys_initialize_impl () {
   gfr_init_hxx();
 }
 
-void HommeDynamics::fv_phys_dyn_to_fv_phys () {
-  if (not fv_phys_active()) return;
-  remap_dyn_to_fv_phys();
-  update_pressure(m_phys_grid);
-  // Copy current physics T,uv state to FT,M to form tendencies in next
-  // dynamics step.
-  constexpr int N = HOMMEXX_PACK_SIZE;
-  using Pack = ekat::Pack<Real,N>;
+// During restart, we can't overwrite T_mid, horiz_winds, and tracers, as these
+// contain data used in homme_pre_process to compute tendencies.
+struct HommeDynamics::GllFvRemapTmp {
+  Homme::ExecView<Real***> T_mid;
+  Homme::ExecView<Real****> horiz_winds, tracers;
+};
+
+// Copy physics T,uv state to FT,M to form tendencies in next dynamics step.
+template <typename T_t, typename uv_t, typename FT_t, typename FM_t>
+static void copy_prev (const int ncols, const int npacks,
+                       const T_t& T, const uv_t& uv,
+                       const FT_t& FT, const FM_t& FM) {
   using KT = KokkosTypes<DefaultDevice>;
   using ESU = ekat::ExeSpaceUtils<KT::ExeSpace>;
-  const auto ncols = m_phys_grid->get_num_local_dofs();
-  const auto nlevs = m_phys_grid->get_num_vertical_levels();
-  const auto npacks = ekat::PackInfo<N>::num_packs(nlevs);
-  const auto& pgn = m_phys_grid->name();
-  const auto T  = get_field_out("T_mid",pgn).get_view<const Pack**>();
-  const auto uv = get_field_out("horiz_winds",pgn).get_view<const Pack***>();
-  const auto FT = m_helper_fields.at("FT_phys").get_view<Pack**>();
-  const auto FM = m_helper_fields.at("FM_phys").get_view<Pack***>();
-  const auto policy = ESU::get_default_team_policy(ncols,npacks);
+  const auto policy = ESU::get_default_team_policy(ncols, npacks);
   Kokkos::parallel_for(policy, KOKKOS_LAMBDA (const KT::MemberType& team) {
     const int& icol = team.league_rank();
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(team,npacks),
-                         [&](const int ilev) {
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(team, npacks),
+                         [&] (const int ilev) {
       FT(icol,ilev) = T(icol,ilev);
       FM(icol,0,ilev) = uv(icol,0,ilev);
       FM(icol,1,ilev) = uv(icol,1,ilev);
       FM(icol,2,ilev) = 0;
     });
   });
-  Kokkos::fence();
+  Kokkos::fence();  
+}
+
+void HommeDynamics::fv_phys_dyn_to_fv_phys (const bool restart) {
+  if (not fv_phys_active()) return;
+  constexpr int N = HOMMEXX_PACK_SIZE;
+  using Pack = ekat::Pack<Real,N>;
+  const auto nlevs = m_phys_grid->get_num_vertical_levels();
+  const auto npacks = ekat::PackInfo<N>::num_packs(nlevs);
+  const auto& pgn = m_phys_grid->name();
+  const auto ncols = m_phys_grid->get_num_local_dofs();
+  const auto FT = m_helper_fields.at("FT_phys").get_view<Pack**>();
+  const auto FM = m_helper_fields.at("FM_phys").get_view<Pack***>();
+  if (restart) {
+    constexpr int NGP = HOMMEXX_NP;
+    const int nelem = m_dyn_grid->get_num_local_dofs()/(NGP*NGP);
+    const auto npg = m_phys_grid_pgN*m_phys_grid_pgN;
+    GllFvRemapTmp t;    
+    t.T_mid = Homme::ExecView<Real***>("T_mid_tmp", nelem, npg, npacks*N);
+    t.horiz_winds = Homme::ExecView<Real****>("horiz_winds_tmp", nelem, npg, 2, npacks*N);
+    // Really need just the first tracer.
+    const auto qsize = get_group_out("tracers", pgn).m_bundle->get_view<Real***>().extent_int(1);
+    t.tracers = Homme::ExecView<Real****>("tracers_tmp", nelem, npg, qsize, npacks*N);
+    remap_dyn_to_fv_phys(&t);
+    assert(ncols == nelem*npg);
+    Homme::ExecViewUnmanaged<Pack**> T(reinterpret_cast<Pack*>(t.T_mid.data()),
+                                        ncols, npacks);
+    Homme::ExecViewUnmanaged<Pack***> uv(reinterpret_cast<Pack*>(t.horiz_winds.data()),
+                                         ncols, 2, npacks);
+    copy_prev(ncols, npacks, T, uv, FT, FM);
+  } else {
+    remap_dyn_to_fv_phys();
+    const auto T  = get_field_out("T_mid",pgn).get_view<const Pack**>();
+    const auto uv = get_field_out("horiz_winds",pgn).get_view<const Pack***>();
+    copy_prev(ncols, npacks, T, uv, FT, FM);
+  }
+  update_pressure(m_phys_grid);
 }
 
 // Q state: Map get_group_in("tracers", gn) to Homme's FQ.
@@ -116,7 +148,7 @@ void HommeDynamics::fv_phys_post_process () {
   fv_phys_dyn_to_fv_phys();
 }
 
-void HommeDynamics::remap_dyn_to_fv_phys () const {
+void HommeDynamics::remap_dyn_to_fv_phys (GllFvRemapTmp* t) const {
   if (not fv_phys_active()) return;
   const auto& c = Homme::Context::singleton();
   auto& gfr = c.get<Homme::GllFvRemap>();
@@ -137,16 +169,16 @@ void HommeDynamics::remap_dyn_to_fv_phys () const {
     get_field_out("phis", gn).get_view<Real*>().data(),
     nelem, npg);
   const auto T = Homme::GllFvRemap::Phys2T(
-    get_field_out("T_mid", gn).get_view<Real**>().data(),
+    t ? t->T_mid.data() : get_field_out("T_mid", gn).get_view<Real**>().data(),
     nelem, npg, nlev);
   const auto omega = Homme::GllFvRemap::Phys2T(
     get_field_out("omega", gn).get_view<Real**>().data(),
     nelem, npg, nlev);
   const auto uv = Homme::GllFvRemap::Phys3T(
-    get_field_out("horiz_winds", gn).get_view<Real***>().data(),
+    t ? t->horiz_winds.data() : get_field_out("horiz_winds", gn).get_view<Real***>().data(),
     nelem, npg, 2, nlev);
   const auto q = Homme::GllFvRemap::Phys3T(
-    get_group_out("tracers", gn).m_bundle->get_view<Real***>().data(),
+    t ? t->tracers.data() : get_group_out("tracers", gn).m_bundle->get_view<Real***>().data(),
     nelem, npg, nq, nlev);
   const auto dp = Homme::GllFvRemap::Phys2T(
     get_field_out("pseudo_density", gn).get_view<Real**>().data(),

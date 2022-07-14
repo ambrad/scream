@@ -85,13 +85,14 @@ protected:
   void fv_phys_set_grids();
   void fv_phys_requested_buffer_size_in_bytes() const;
   void fv_phys_initialize_impl();
-  void fv_phys_dyn_to_fv_phys();
+  void fv_phys_dyn_to_fv_phys(const bool restart = false);
   void fv_phys_pre_process();
   void fv_phys_post_process();
 public:
   // Fast boolean function returning whether Physics PGN is being used.
   bool fv_phys_active() const;
-  void remap_dyn_to_fv_phys() const;
+  struct GllFvRemapTmp;
+  void remap_dyn_to_fv_phys(GllFvRemapTmp* t = nullptr) const;
   void remap_fv_phys_to_dyn() const;
   
 protected:
