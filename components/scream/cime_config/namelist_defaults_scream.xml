@@ -181,6 +181,7 @@ tweaking their $case/namelist_scream.xml file.
     <spa inherit="physics_proc_base">
       <SPA__Remap__File>UNSET</SPA__Remap__File>
       <SPA__Remap__File hgrid="ne4np4">${DIN_LOC_ROOT}/atm/scream/init/map_ne30_to_ne4_mono_20220502.nc</SPA__Remap__File>
+      <SPA__Remap__File hgrid="ne4pg2">/home/ac.ambradl/scream/spa/map_ne30np4_to_ne4pg2_mono.20220714.nc</SPA__Remap__File>
       <SPA__Remap__File hgrid="ne30np4">none</SPA__Remap__File>
       <SPA__Remap__File hgrid="ne120np4">${DIN_LOC_ROOT}/atm/scream/init/map_ne30np4_to_ne120np4_mono_20220502.nc</SPA__Remap__File>
       <SPA__Remap__File hgrid="ne512np4">${DIN_LOC_ROOT}/atm/scream/init/map_ne30np4_to_ne512np4_mono_20220506.nc</SPA__Remap__File>
@@ -248,7 +249,7 @@ tweaking their $case/namelist_scream.xml file.
 
   <!-- List of yaml files containing I/O output specs -->
   <Scorpio>
-    <Output__YAML__Files type="array(string)">data/scream_output.yaml</Output__YAML__Files>
+    <Output__YAML__Files type="array(string)">data/scream_default_output.yaml</Output__YAML__Files>
     <Model__Restart>
       <Casename>./${CASE}.scream</Casename>
       <Output__Control>
@@ -301,14 +302,15 @@ tweaking their $case/namelist_scream.xml file.
   <!-- Homme control namelist -->
   <ctl_nl>
     <cubed_sphere_map>0</cubed_sphere_map>
+    <cubed_sphere_map hgrid=".*pg2">2</cubed_sphere_map>
     <disable_diagnostics>False</disable_diagnostics>
     <dt_remap_factor constraints="ge 1">2</dt_remap_factor>
-    <dt_tracer_factor constraints="ge 1">1</dt_tracer_factor>
+    <dt_tracer_factor constraints="ge 1">6</dt_tracer_factor>
     <hypervis_order>2</hypervis_order>
     <hypervis_scaling>3.0</hypervis_scaling>
     <hypervis_subcycle>1</hypervis_subcycle>
     <hypervis_subcycle_tom>1</hypervis_subcycle_tom>
-    <hypervis_subcycle_q>1</hypervis_subcycle_q>
+    <hypervis_subcycle_q>6</hypervis_subcycle_q>
     <nu>3.4e-08</nu>
     <nu_top>UNSET</nu_top>
     <nu_top hgrid="ne4np4">250000.0</nu_top>
@@ -342,7 +344,7 @@ tweaking their $case/namelist_scream.xml file.
     <theta_hydrostatic_mode>False</theta_hydrostatic_mode>
     <tstep_type>9</tstep_type>
     <vert_remap_q_alg>10</vert_remap_q_alg>
-    <transport_alg>0</transport_alg>
+    <transport_alg>12</transport_alg>
   </ctl_nl>
 
 </namelist_defaults>
