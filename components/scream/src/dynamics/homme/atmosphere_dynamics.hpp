@@ -90,7 +90,7 @@ protected:
   void fv_phys_post_process();
   // See [rrtmgp active gases] in atmosphere_dynamics_fv_phys.cpp.
   void fv_phys_rrtmgp_active_gases_init();
-  void fv_phys_rrtmgp_active_gases_remove_cgll_fields();
+  void fv_phys_rrtmgp_active_gases_remap();
 public:
   // Fast boolean function returning whether Physics PGN is being used.
   bool fv_phys_active() const;

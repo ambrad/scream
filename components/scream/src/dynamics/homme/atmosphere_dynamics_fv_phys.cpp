@@ -220,10 +220,11 @@ void HommeDynamics::remap_fv_phys_to_dyn () const {
 }
 
 // [rrtmgp active gases] This is to address issue #1782. It supports option 1 in
-// that issue. fv_phys_rrtmgp_active_gases_* routines can be removed once trace
-// gases initialization is treated properly.
+// that issue. These fv_phys_rrtmgp_active_gases_* routines can be removed once
+// rrtmgp active_gases initialization is treated properly.
 
 struct TraceGasesWorkaround {
+  std::shared_ptr<AbstractRemapper> ic_remapper;
   std::vector<std::string> active_gases; // other than h2o
 };
 
@@ -243,14 +244,63 @@ void HommeDynamics::fv_phys_rrtmgp_active_gases_init () {
   auto kgkg = kg/kg;
   kgkg.set_string("kg/kg");
   const auto& rgn = m_cgll_grid->name();
-  const auto nc = m_cgll_grid->get_num_local_dofs();
+  const auto& pgn = m_phys_grid->name();
+  const auto rnc = m_cgll_grid->get_num_local_dofs();
+  const auto pnc = m_phys_grid->get_num_local_dofs();
   const auto nlev = m_cgll_grid->get_num_vertical_levels();
   constexpr int ps = SCREAM_SMALL_PACK_SIZE;
-  for (const auto& e : s_tgw.active_gases)
-    add_field<Required>(e, FieldLayout({COL,LEV},{nc,nlev}), kgkg, rgn, ps);
+  for (const auto& e : s_tgw.active_gases) {
+    add_field<Required>(e, FieldLayout({COL,LEV},{rnc,nlev}), kgkg, rgn, ps);
+    add_field<Computed>(e, FieldLayout({COL,LEV},{pnc,nlev}), kgkg, pgn, ps);
+  }
+  // Don't let m_ic_remapper get deleted until we use it.
+  s_tgw.ic_remapper = m_ic_remapper;
 }
 
-void HommeDynamics::fv_phys_rrtmgp_active_gases_remove_cgll_fields () {
+void HommeDynamics::fv_phys_rrtmgp_active_gases_remap () {
+  using namespace ShortFieldTagsNames;
+  const auto& dgn = m_dyn_grid ->name();
+  const auto& rgn = m_cgll_grid->name();
+  const auto& pgn = m_phys_grid->name();
+  constexpr int NGP = HOMMEXX_NP;
+  const int ngll = NGP*NGP;
+  const int npg = m_phys_grid_pgN*m_phys_grid_pgN;
+  const int nelem = m_dyn_grid->get_num_local_dofs()/ngll;
+  { // CGLL -> DGLL
+    const auto dnc = m_dyn_grid->get_num_local_dofs();
+    const auto nlev = m_dyn_grid->get_num_vertical_levels();
+    for (const auto& e : s_tgw.active_gases)
+      create_helper_field(e, {COL,LEV}, {dnc,nlev}, dgn);
+    auto& r = s_tgw.ic_remapper;
+    r->registration_begins();
+    for (const auto& e : s_tgw.active_gases)
+      r->register_field(get_field_in(e, rgn), m_helper_fields.at(e));
+    r->registration_ends();
+    r->remap(true);
+    s_tgw.ic_remapper = nullptr; // now it can be deleted
+  }
+  { // DGLL -> PGN
+    const auto& c = Homme::Context::singleton();
+    auto& gfr = c.get<Homme::GllFvRemap>();
+    for (const auto& e : s_tgw.active_gases) {
+      const auto& f_dgll = m_helper_fields.at(e);
+      const auto& f_phys = get_field_out(e, pgn);
+      const auto& v_dgll = f_dgll.get_view<const Real**>();
+      const auto& v_phys = f_phys.get_view<Real**>();
+      assert(nelem*ngll == v_dgll.extent_int(0));
+      const auto in_dgll = Homme::GllFvRemap::CPhys3T(
+        v_dgll.data(), nelem, ngll, 1, v_dgll.extent_int(1));
+      assert(nelem*npg == v_phys.extent_int(0));
+      const auto out_phys = Homme::GllFvRemap::Phys3T(
+        v_phys.data(), nelem, npg, 1, v_phys.extent_int(1));
+      gfr.remap_tracer_dyn_to_fv_phys(1, in_dgll, out_phys);
+    }
+  }
+  // Done with these fields, so remove them.
+  for (const auto& e : s_tgw.active_gases)
+    m_helper_fields.erase(e);
+  for (const auto& e : s_tgw.active_gases)
+    remove_field(e, rgn);
 }
 
 } // namespace scream

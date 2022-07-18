@@ -432,7 +432,7 @@ void HommeDynamics::initialize_impl (const RunType run_type)
     for (const auto& f : {"horiz_winds", "T_mid", "pseudo_density", "ps", "phis"})
       remove_field(f, rgn);
     remove_group("tracers", rgn);
-    fv_phys_rrtmgp_active_gases_remove_cgll_fields();
+    fv_phys_rrtmgp_active_gases_remap();
   }
 
   // Set up field property checks
