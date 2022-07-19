@@ -185,7 +185,7 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
     add_field<Required>("ps",            FL({COL         },{nc           }),Pa,    rgn);
     add_field<Required>("phis",          FL({COL         },{nc           }),m2/s2, rgn);
     add_group<Required>("tracers",rgn,N, Bundling::Required, DerivationType::Import, "tracers", pgn);
-    fv_phys_rrtmgp_active_gases_init();
+    fv_phys_rrtmgp_active_gases_init(grids_manager);
   }
 
   // Dynamics grid states

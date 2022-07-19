@@ -224,7 +224,7 @@ void HommeDynamics::remap_fv_phys_to_dyn () const {
 // rrtmgp active_gases initialization is treated properly.
 
 struct TraceGasesWorkaround {
-  std::shared_ptr<AbstractRemapper> ic_remapper;
+  std::shared_ptr<AbstractRemapper> remapper;
   std::vector<std::string> active_gases; // other than h2o
 };
 
@@ -238,7 +238,8 @@ void fv_phys_rrtmgp_active_gases_init (const ekat::ParameterList& p) {
       s_tgw.active_gases.push_back(e);
 }
 
-void HommeDynamics::fv_phys_rrtmgp_active_gases_init () {
+void HommeDynamics
+::fv_phys_rrtmgp_active_gases_init (const std::shared_ptr<const GridsManager>& gm) {
   using namespace ekat::units;
   using namespace ShortFieldTagsNames;
   auto kgkg = kg/kg;
@@ -253,8 +254,7 @@ void HommeDynamics::fv_phys_rrtmgp_active_gases_init () {
     add_field<Required>(e, FieldLayout({COL,LEV},{rnc,nlev}), kgkg, rgn, ps);
     add_field<Computed>(e, FieldLayout({COL,LEV},{pnc,nlev}), kgkg, pgn, ps);
   }
-  // Don't let m_ic_remapper get deleted until we use it.
-  s_tgw.ic_remapper = m_ic_remapper;
+  s_tgw.remapper = gm->create_remapper(m_cgll_grid, m_dyn_grid);
 }
 
 void HommeDynamics::fv_phys_rrtmgp_active_gases_remap () {
@@ -267,17 +267,16 @@ void HommeDynamics::fv_phys_rrtmgp_active_gases_remap () {
   const int npg = m_phys_grid_pgN*m_phys_grid_pgN;
   const int nelem = m_dyn_grid->get_num_local_dofs()/ngll;
   { // CGLL -> DGLL
-    const auto dnc = m_dyn_grid->get_num_local_dofs();
     const auto nlev = m_dyn_grid->get_num_vertical_levels();
     for (const auto& e : s_tgw.active_gases)
-      create_helper_field(e, {COL,LEV}, {dnc,nlev}, dgn);
-    auto& r = s_tgw.ic_remapper;
+      create_helper_field(e, {EL,GP,GP,LEV}, {nelem,NGP,NGP,nlev}, dgn);
+    auto& r = s_tgw.remapper;
     r->registration_begins();
     for (const auto& e : s_tgw.active_gases)
       r->register_field(get_field_in(e, rgn), m_helper_fields.at(e));
     r->registration_ends();
     r->remap(true);
-    s_tgw.ic_remapper = nullptr; // now it can be deleted
+    s_tgw.remapper = nullptr;
   }
   { // DGLL -> PGN
     const auto& c = Homme::Context::singleton();
@@ -286,11 +285,12 @@ void HommeDynamics::fv_phys_rrtmgp_active_gases_remap () {
     for (const auto& e : s_tgw.active_gases) {
       const auto& f_dgll = m_helper_fields.at(e);
       const auto& f_phys = get_field_out(e, pgn);
-      const auto& v_dgll = f_dgll.get_view<const Real**>();
+      const auto& v_dgll = f_dgll.get_view<const Real****>();
       const auto& v_phys = f_phys.get_view<Real**>();
-      assert(nelem*ngll == v_dgll.extent_int(0));
+      assert(v_dgll.extent_int(0) == nelem and
+             v_dgll.extent_int(1)*v_dgll.extent_int(2) == ngll);
       const auto in_dgll = Homme::GllFvRemap::CPhys3T(
-        v_dgll.data(), nelem, ngll, 1, v_dgll.extent_int(1));
+        v_dgll.data(), nelem, ngll, 1, v_dgll.extent_int(3));
       assert(nelem*npg == v_phys.extent_int(0));
       const auto out_phys = Homme::GllFvRemap::Phys3T(
         v_phys.data(), nelem, npg, 1, v_phys.extent_int(1));
