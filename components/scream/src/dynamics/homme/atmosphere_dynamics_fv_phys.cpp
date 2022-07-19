@@ -282,6 +282,7 @@ void HommeDynamics::fv_phys_rrtmgp_active_gases_remap () {
   { // DGLL -> PGN
     const auto& c = Homme::Context::singleton();
     auto& gfr = c.get<Homme::GllFvRemap>();
+    const auto time_idx = c.get<Homme::TimeLevel>().n0;
     for (const auto& e : s_tgw.active_gases) {
       const auto& f_dgll = m_helper_fields.at(e);
       const auto& f_phys = get_field_out(e, pgn);
@@ -293,7 +294,7 @@ void HommeDynamics::fv_phys_rrtmgp_active_gases_remap () {
       assert(nelem*npg == v_phys.extent_int(0));
       const auto out_phys = Homme::GllFvRemap::Phys3T(
         v_phys.data(), nelem, npg, 1, v_phys.extent_int(1));
-      gfr.remap_tracer_dyn_to_fv_phys(1, in_dgll, out_phys);
+      gfr.remap_tracer_dyn_to_fv_phys(time_idx, 1, in_dgll, out_phys);
     }
   }
   // Done with these fields, so remove them.
