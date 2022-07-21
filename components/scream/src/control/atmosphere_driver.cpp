@@ -260,6 +260,8 @@ void AtmosphereDriver::create_fields()
         const auto& rel_fm   = m_field_mgrs.at(req.src_grid);
         const auto& rel_info = rel_fm->get_groups_info().at(req.src_name);
 
+        // In the case of pg2, can't use create_remapper. But the remapper is
+        // used only for a convenience function, anyway, create_tgt_fid.
         auto r = fvphyshack ? nullptr : m_grids_manager->create_remapper(req.src_grid,req.grid);
         // Loop over all fields in group src_name on grid src_grid.
         for (const auto& fname : rel_info->m_fields_names) {

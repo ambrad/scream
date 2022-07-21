@@ -217,6 +217,7 @@ void HommeDynamics::remap_fv_phys_to_dyn () const {
   gfr.run_fv_phys_to_dyn(time_idx, T, uv, q);
   Kokkos::fence();
   gfr.run_fv_phys_to_dyn_dss();
+  Kokkos::fence();
 }
 
 // [rrtmgp active gases] This is to address issue #1782. It supports option 1 in
@@ -290,11 +291,12 @@ void HommeDynamics::fv_phys_rrtmgp_active_gases_remap () {
       assert(v_dgll.extent_int(0) == nelem and
              v_dgll.extent_int(1)*v_dgll.extent_int(2) == ngll);
       const auto in_dgll = Homme::GllFvRemap::CPhys3T(
-        v_dgll.data(), nelem, ngll, 1, v_dgll.extent_int(3));
+        v_dgll.data(), nelem, 1, ngll, v_dgll.extent_int(3));
       assert(nelem*npg == v_phys.extent_int(0));
       const auto out_phys = Homme::GllFvRemap::Phys3T(
         v_phys.data(), nelem, npg, 1, v_phys.extent_int(1));
       gfr.remap_tracer_dyn_to_fv_phys(time_idx, 1, in_dgll, out_phys);
+      Kokkos::fence();
     }
   }
   // Done with these fields, so remove them.

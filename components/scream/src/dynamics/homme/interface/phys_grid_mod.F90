@@ -551,7 +551,7 @@ contains
   end subroutine compute_global_coords
 
   subroutine phys_grid_init (pgN)
-    use gllfvremap_mod,    only: gfr_init, gfr_init_hxx
+    use gllfvremap_mod,    only: gfr_init
     use homme_context_mod, only: elem, par
     use dimensions_mod,    only: nelem, nelemd
     !

@@ -172,6 +172,7 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
   add_field<Computed>("p_mid",         FL({COL,     LEV},{ncols,  nlev_mid}),Pa,    pgn,N);
   add_field<Computed>("omega",         FL({COL,     LEV},{ncols,  nlev_mid}),Pa/s,  pgn,N);
   add_group<Updated>("tracers",pgn,N, Bundling::Required);
+
   if (fv_phys_active()) {
     // [CGLL ICs in pg2] Read CGLL IC data even though our in/out format is
     // pgN. I don't want to read these directly from the netcdf file because
