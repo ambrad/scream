@@ -698,7 +698,7 @@ void HommeDynamics::homme_post_process () {
   const auto dp_dry_view    = get_field_out("pseudo_density_dry").get_view<Pack**>();
   const auto p_dry_int_view = get_field_out("p_dry_int").get_view<Pack**>();
   const auto p_dry_mid_view = get_field_out("p_dry_mid").get_view<Pack**>();
-  const auto Q_view   = get_group_out("Q",rgn).m_bundle->get_view<Pack***>();
+  const auto Q_view   = get_group_out("Q",pgn).m_bundle->get_view<Pack***>();
 
   const auto T_view  = get_field_out("T_mid").get_view<Pack**>();
   const auto v_view  = get_field_out("horiz_winds").get_view<Pack***>();
@@ -1003,7 +1003,7 @@ void HommeDynamics::restart_homme_state () {
   m_ic_remapper->registration_begins();
   m_ic_remapper->register_field(m_helper_fields.at("FT_phys"),m_helper_fields.at("vtheta_dp_dyn"));
   m_ic_remapper->register_field(m_helper_fields.at("uv_prev"),m_helper_fields.at("v_dyn"));
-  m_ic_remapper->register_field(get_field_out("pseudo_density",rgn),m_helper_fields.at("dp3d_dyn"));
+  m_ic_remapper->register_field(get_field_out("pseudo_density",pgn),m_helper_fields.at("dp3d_dyn"));
   auto Q_dyn = m_helper_fields.at("Q_dyn");
   if (params.ftype==Homme::ForcingAlg::FORCING_2) {
     // Recall, we store Q_old in FQ_ref, and do FQ_ref = Q_new - FQ_ref during pre-process
@@ -1034,7 +1034,7 @@ void HommeDynamics::restart_homme_state () {
   m_ic_remapper = nullptr; // Can clean up the IC remapper now.
 
   // Now that we have dp_ref, we can recompute pressure
-  update_pressure();
+  update_pressure(m_phys_grid);
 
   // Copy uv_prev into FM_ref. Also, FT_ref contains vtheta_dp,
   // so convert it to actual temperature
