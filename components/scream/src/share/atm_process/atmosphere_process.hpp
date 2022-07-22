@@ -412,6 +412,13 @@ protected:
   //       logger, we might as well expose the member to all derived classes.
   std::shared_ptr<logger_t>  m_atm_logger;
 
+  // Use at your own risk. Motivation: Free up device memory for a field that is
+  // no longer used, such as a field read in the ICs used only to initialize
+  // other fields.
+  void remove_field(const std::string& field_name, const std::string& grid_name);
+  // Calls remove_field on each field in the group.
+  void remove_group(const std::string& group_name, const std::string& grid_name);
+
 private:
   // Called from initialize, this method creates the m_[fields|groups]_[in|out]_pointers
   // maps, which are used inside the get_[field|group]_[in|out] methods.

@@ -10,6 +10,7 @@
 #include "share/io/scream_output_manager.hpp"
 #include "share/io/scorpio_input.hpp"
 #include "share/atm_process/ATMBufferManager.hpp"
+#include "dynamics/homme/atmosphere_dynamics.hpp"
 
 #include "ekat/logging/ekat_logger.hpp"
 #include "ekat/mpi/ekat_comm.hpp"

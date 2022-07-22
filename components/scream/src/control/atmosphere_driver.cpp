@@ -14,6 +14,8 @@
 #include "ekat/ekat_parse_yaml_file.hpp"
 #include "ekat/std_meta/ekat_std_utils.hpp"
 
+#include "control/fvphyshack.hpp"
+
 #include <fstream>
 
 namespace scream {
@@ -108,6 +110,21 @@ set_params(const ekat::ParameterList& atm_params)
   create_logger ();
 
   m_ad_status |= s_params_set;
+
+  const auto hgn = "Physics PG2";
+  fvphyshack = m_atm_params.sublist("Grids Manager").get<std::string>("Reference Grid") == hgn;
+  if (fvphyshack) {
+    // XML selectors don't work for the atmosphere_processes Grids entry; see
+    // issue #1725. Work around this by setting the right values now.
+    auto& pl = const_cast<ekat::ParameterList&>(atm_params.sublist("atmosphere_processes").sublist("physics"));
+    for (const auto c : {"shoc", "cldFraction", "p3"})
+      pl.sublist("mac_aero_mic").sublist(c).set<std::string>("Grid", hgn);
+    pl.sublist("rrtmgp").set<std::string>("Grid", hgn);
+  }
+  if (fvphyshack) {
+    // See the [rrtmgp active gases] note in dynamics/homme/atmosphere_dynamics_fv_phys.cpp.
+    fv_phys_rrtmgp_active_gases_init(m_atm_params);
+  }
 }
 
 void AtmosphereDriver::
@@ -236,13 +253,14 @@ void AtmosphereDriver::create_fields()
             "   grid name: " + req.grid + "\n");
         // Given request for group A on grid g1 to be an Import of
         // group B on grid g2, register each field in group B in the
-
         // field manager on grid g1.
         const auto& fm = m_field_mgrs.at(req.grid);
         const auto& rel_fm   = m_field_mgrs.at(req.src_grid);
         const auto& rel_info = rel_fm->get_groups_info().at(req.src_name);
 
-        auto r = m_grids_manager->create_remapper(req.src_grid,req.grid);
+        // In the case of pg2, can't use create_remapper. But the remapper is
+        // used only for a convenience function, anyway, create_tgt_fid.
+        auto r = fvphyshack ? nullptr : m_grids_manager->create_remapper(req.src_grid,req.grid);
         // Loop over all fields in group src_name on grid src_grid.
         for (const auto& fname : rel_info->m_fields_names) {
           // Get field on src_grid
@@ -250,9 +268,19 @@ void AtmosphereDriver::create_fields()
 
           // Build a FieldRequest for the same field on greq's grid,
           // and add it to the group of this request
-          auto fid = r->create_tgt_fid(f->get_header().get_identifier());
-          FieldRequest freq(fid,req.name,req.pack_size);
-          fm->register_field(freq);
+          if (fvphyshack) {
+            const auto& sfid = f->get_header().get_identifier();
+            auto dims = sfid.get_layout().dims();
+            dims[0] = fm->get_grid()->get_num_local_dofs();
+            FieldLayout fl(sfid.get_layout().tags(), dims);
+            FieldIdentifier fid(sfid.name(), fl, sfid.get_units(), req.grid);
+            FieldRequest freq(fid,req.name,req.pack_size);
+            fm->register_field(freq);
+          } else {
+            const auto fid = r->create_tgt_fid(f->get_header().get_identifier());
+            FieldRequest freq(fid,req.name,req.pack_size);
+            fm->register_field(freq);
+          }
         }
 
         // Now that the fields have been imported on this grid's GM,
@@ -323,11 +351,18 @@ void AtmosphereDriver::create_fields()
   // the internal fields/groups, and mark them as part of the RESTART group.
   for (const auto& f : m_atm_process_group->get_fields_in()) {
     const auto& fid = f.get_header().get_identifier();
-    auto fm = get_field_mgr(fid.get_grid_name());
+    const auto& gn = fid.get_grid_name();
+    if (fvphyshack and gn == "Physics CGLL") {
+      // CGLL is used only in the IC field for Homme.
+      continue;
+    }
+    auto fm = get_field_mgr(gn);
     fm->add_to_group(fid.name(),"RESTART");
   }
   for (const auto& g : m_atm_process_group->get_groups_in()) {
-    auto fm = get_field_mgr(g.grid_name());
+    const auto& gn = g.grid_name();
+    auto fm = get_field_mgr(gn);
+    if (fvphyshack and gn == "Physics CGLL") continue; // see above
     if (g.m_bundle) {
       fm->add_to_group(g.m_bundle->get_header().get_identifier().name(),"RESTART");
     } else {
@@ -338,7 +373,9 @@ void AtmosphereDriver::create_fields()
   }
   for (const auto& f : m_atm_process_group->get_internal_fields()) {
     const auto& fid = f.get_header().get_identifier();
-    auto fm = get_field_mgr(fid.get_grid_name());
+    const auto& gn = fid.get_grid_name();
+    if (fvphyshack and gn == "Physics CGLL") continue; // see above
+    auto fm = get_field_mgr(gn);
     fm->add_to_group(fid.name(),"RESTART");
   }
 
@@ -368,9 +405,19 @@ void AtmosphereDriver::initialize_output_managers () {
     // Signal that this is not a normal output, but the model restart one
     m_output_managers.emplace_back();
     auto& om = m_output_managers.back();
-    om.setup(m_atm_comm,restart_pl,m_field_mgrs,m_grids_manager,m_run_t0,m_case_t0,true);
+    if (fvphyshack) {
+      // Don't save CGLL fields from ICs to the restart file.
+      std::map<std::string,field_mgr_ptr> fms;
+      for (auto& it : m_field_mgrs) {
+        if (it.first == "Physics GLL") continue;
+        fms[it.first] = it.second;
+      }
+      om.setup(m_atm_comm,restart_pl,         fms,m_grids_manager,m_run_t0,m_case_t0,true);
+    } else {
+      om.setup(m_atm_comm,restart_pl,m_field_mgrs,m_grids_manager,m_run_t0,m_case_t0,true);
+    }
   }
-
+  
   // Build one manager per output yaml file
   using vos_t = std::vector<std::string>;
   const auto& output_yaml_files = io_params.get<vos_t>("Output YAML Files",vos_t{});
@@ -516,6 +563,7 @@ void AtmosphereDriver::restart_model ()
   AtmosphereInput model_restart(m_atm_comm,rest_pl);
 
   for (auto& it : m_field_mgrs) {
+    if (fvphyshack and it.second->get_grid()->name() == "Physics GLL") continue;
     if (not it.second->has_group("RESTART")) {
       // No field needs to be restarted on this grid.
       continue;
@@ -602,6 +650,8 @@ void AtmosphereDriver::set_initial_conditions ()
     const auto& fname = fid.name();
     const auto& grid_name = fid.get_grid_name();
 
+    if (fvphyshack and grid_name == "Physics PG2") return;
+
     // First, check if the input file contains constant values for some of the fields
     if (ic_pl.isParameter(fname)) {
       // The user provided a constant value for this field. Simply use that.
@@ -622,9 +672,20 @@ void AtmosphereDriver::set_initial_conditions ()
       // If this field is the parent of other subfields, we only read from file the subfields.
       auto c = f.get_header().get_children();
       if (c.size()==0) {
-        auto& this_grid_ic_fnames = ic_fields_names[fid.get_grid_name()];
+        auto& this_grid_ic_fnames = ic_fields_names[grid_name];
         if (not ekat::contains(this_grid_ic_fnames,fname)) {
           this_grid_ic_fnames.push_back(fname);
+        }
+      } else if (fvphyshack and grid_name == "Physics GLL") {
+        // [CGLL ICs in pg2] I tried doing something like this in
+        // HommeDynamics::set_grids, but I couldn't find the means to get the
+        // list of fields. I think the issue is that you can't access group
+        // objects until some registration period ends. So instead do it here,
+        // where the list is definitely avaiable.
+        auto& this_grid_ic_fnames = ic_fields_names[grid_name];
+        for (const auto& e : c) {
+          const auto f = e.lock();
+          this_grid_ic_fnames.push_back(f->get_identifier().name());
         }
       }
     }
@@ -666,18 +727,21 @@ void AtmosphereDriver::set_initial_conditions ()
       auto& names = it1.second;
       for (auto it2=names.begin(); it2!=names.end(); ++it2) {
         const auto& fname = *it2;
-        auto f = fm->get_field(fname);
-        auto p = f.get_header().get_parent().lock();
-        if (p) {
-          const auto& pname = p->get_identifier().name();
-          if (ekat::contains(fields_inited[grid_name],pname)) {
-            // The parent is already inited. No need to init this field as well.
-            names.erase(it2);
-            run_again = true;
-            break;
+        try {
+          auto f = fm->get_field(fname);
+          auto p = f.get_header().get_parent().lock();
+          if (p) {
+            const auto& pname = p->get_identifier().name();
+            if (ekat::contains(fields_inited[grid_name],pname)) {
+              // The parent is already inited. No need to init this field as well.
+              names.erase(it2);
+              run_again = true;
+              break;
+            }
           }
+        } catch (...) {
+          fprintf(stderr,"amb> bundled field loop: can't find %s\n", fname.c_str());
         }
-
       }
     }
   }
@@ -856,6 +920,13 @@ void AtmosphereDriver::initialize_atm_procs ()
 
   // Initialize the processes
   m_atm_process_group->initialize(m_current_ts, restarted_run ? RunType::Restarted : RunType::Initial);
+
+  if (fvphyshack) {
+    // [CGLL ICs in pg2] See related notes in atmosphere_dynamics.cpp.
+    const auto gn = "Physics GLL";
+    m_field_mgrs[gn]->clean_up();
+    m_field_mgrs.erase(gn);
+  }
 
   m_ad_status |= s_procs_inited;
 
