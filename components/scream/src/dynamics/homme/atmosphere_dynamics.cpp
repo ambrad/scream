@@ -186,7 +186,6 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
     const auto nc = m_cgll_grid->get_num_local_dofs();
     add_field<Required>("horiz_winds",   FL({COL,CMP, LEV},{nc,2,nlev_mid}),m/s,   rgn,N);
     add_field<Required>("T_mid",         FL({COL,     LEV},{nc,  nlev_mid}),K,     rgn,N);
-    add_field<Required>("pseudo_density",FL({COL,     LEV},{nc,  nlev_mid}),Pa,    rgn,N);
     add_field<Required>("ps",            FL({COL         },{nc           }),Pa,    rgn);
     add_field<Required>("phis",          FL({COL         },{nc           }),m2/s2, rgn);
     add_group<Required>("tracers",rgn,N, Bundling::Required, DerivationType::Import, "tracers", pgn);
@@ -430,7 +429,7 @@ void HommeDynamics::initialize_impl (const RunType run_type)
     // dynamics helper fields Computed and output on the dynamics grid. Worse
     // for I/O but better for device memory.
     const auto& rgn = m_cgll_grid->name();
-    for (const auto& f : {"horiz_winds", "T_mid", "pseudo_density", "ps", "phis"})
+    for (const auto& f : {"horiz_winds", "T_mid", "ps", "phis"})
       remove_field(f, rgn);
     remove_group("tracers", rgn);
     fv_phys_rrtmgp_active_gases_remap();
@@ -702,8 +701,8 @@ void HommeDynamics::homme_post_process () {
 
   const auto T_view  = get_field_out("T_mid").get_view<Pack**>();
   const auto v_view  = get_field_out("horiz_winds").get_view<Pack***>();
-  const auto T_prev_view = m_helper_fields.at("FT_ref").get_view<Pack**>();
-  const auto V_prev_view = m_helper_fields.at("FM_ref").get_view<Pack***>();
+  const auto T_prev_view = m_helper_fields.at("FT_phys").get_view<Pack**>();
+  const auto V_prev_view = m_helper_fields.at("FM_phys").get_view<Pack***>();
 
   const auto ncols = m_phys_grid->get_num_local_dofs();
   const auto nlevs = m_phys_grid->get_num_vertical_levels();
@@ -768,8 +767,8 @@ void HommeDynamics::homme_post_process () {
     });
   });
 
-  // If ftype==FORCING_2, also set FQ_ref=Q_ref. Next step's Q_dyn will be set
-  // as Q_dyn = Q_dyn_old + PD_remap(Q_ref-Q_ref_old)
+  // If ftype==FORCING_2, also set FQ_phys=Q_phys. Next step's Q_dyn will be set
+  // as Q_dyn = Q_dyn_old + PD_remap(Q_phys-Q_phys_old)
   const auto ftype = params.ftype;
   if (ftype==Homme::ForcingAlg::FORCING_2) {
     m_helper_fields.at("FQ_phys").deep_copy(*get_group_out("Q",pgn).m_bundle);
