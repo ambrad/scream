@@ -820,7 +820,7 @@ void GllFvRemapImpl
 
 #ifndef NDEBUG
   const auto nelemd = m_data.nelemd;
-  assert(qs_dyn.extent_int(0) >= nelemd && qs_dyn.extent_int(1) >= np2 && qs_dyn.extent_int(2) >= nq &&
+  assert(qs_dyn.extent_int(0) >= nelemd && qs_dyn.extent_int(1) >= nq && qs_dyn.extent_int(2) >= np2 &&
          qs_dyn.extent_int(3) % packn == 0);
   assert(qs_fv.extent_int(0) >= nelemd && qs_fv.extent_int(1) >= nf2 && qs_fv.extent_int(2) >= nq &&
          qs_fv.extent_int(3) % packn == 0);
