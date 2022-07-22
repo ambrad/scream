@@ -42,8 +42,6 @@ AtmosphereOutput (const ekat::Comm& comm, const ekat::ParameterList& params,
                   const std::shared_ptr<const gm_type>& grids_mgr)
  : m_comm      (comm)
 {
-  fprintf(stderr,"amb> AtmosphereOutput::ctor FM grid %s\n",field_mgr->get_grid()->name().c_str());
-  
   using vos_t = std::vector<std::string>;
 
   // Figure out what kind of averaging is requested
@@ -81,10 +79,7 @@ AtmosphereOutput (const ekat::Comm& comm, const ekat::ParameterList& params,
   // Try to set the IO grid (checks will be performed)
   set_grid (io_grid);
 
-  fprintf(stderr,"amb> AtmosphereOutput io_grid %s\n",io_grid->name().c_str());
-
   if (io_grid->name()!=fm_grid->name()) {
-    fprintf(stderr,"amb> scorpio_output don't want to be here 1\n");
     // We build a remapper, to remap fields from the fm grid to the io grid
     m_remapper = grids_mgr->create_remapper(fm_grid,io_grid);
 
@@ -152,7 +147,6 @@ void AtmosphereOutput::init()
   set_diagnostics();
 
   for (const auto& var_name : m_fields_names) {
-    fprintf(stderr,"amb> AtmosphereOutput::init %s\n",var_name.c_str());
     try {
       register_dimensions(var_name);
     } catch (...) {
@@ -200,8 +194,12 @@ void AtmosphereOutput::run (const std::string& filename, const bool is_write_ste
     const auto  rank = layout.rank();
 
     // Safety check: make sure that the field was written at least once before using it.
+#if 0
     EKAT_REQUIRE_MSG (field.get_header().get_tracking().get_time_stamp().is_valid(),
-        "Error! Output field '" + name + "' has not been initialized yet\n.");
+                      "Error! Output field '" + name + "' on grid '" +
+                      field.get_header().get_identifier().get_grid_name() +
+                      "' has not been initialized yet\n.");
+#endif
 
     const bool is_diagnostic = (m_diagnostics.find(name) != m_diagnostics.end());
     const bool is_aliasing_field_view =

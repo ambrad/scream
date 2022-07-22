@@ -265,7 +265,6 @@ size_t HommeDynamics::requested_buffer_size_in_bytes() const
   fbm.request_size(diag.requested_buffer_size());
   fbm.request_size(ff.requested_buffer_size());
   fbm.request_size(vrm.requested_buffer_size());
-  fprintf(stderr,"amb> requested_buffer_size_in_bytes 1\n");
   // Functors that whose creation depends on the Homme namelist.
   if (params.transport_alg == 0) {
     auto& esf = c.create_if_not_there<EulerStepFunctor>(num_elems);
@@ -274,15 +273,12 @@ size_t HommeDynamics::requested_buffer_size_in_bytes() const
     auto& ct = c.create_if_not_there<ComposeTransport>(num_elems);
     fbm.request_size(ct.requested_buffer_size());
   }
-  fprintf(stderr,"amb> requested_buffer_size_in_bytes 2\n");
   if (need_dirk) {
     // Create dirk functor only if needed
     auto& dirk = c.create_if_not_there<DirkFunctor>(num_elems);
     fbm.request_size(dirk.requested_buffer_size());
   }
   fv_phys_requested_buffer_size_in_bytes();
-
-  fprintf(stderr,"amb> requested_buffer_size_in_bytes done\n");
 
   return fbm.allocated_size()*sizeof(Real);
 }
@@ -900,8 +896,6 @@ void HommeDynamics::init_homme_views () {
 }
 
 void HommeDynamics::restart_homme_state () {
-  fprintf(stderr,"amb> restart_homme_state\n");
-  
   // Safety checks: internal fields *should* have been restarted (and therefore have a valid timestamp)
   for (auto& f : get_internal_fields()) {
     auto ts = f.get_header().get_tracking().get_time_stamp();
@@ -1059,7 +1053,6 @@ void HommeDynamics::restart_homme_state () {
 
 void HommeDynamics::initialize_homme_state () {
   const auto& rgn = m_cgll_grid->name();
-  fprintf(stderr,"amb> HommeDynamics::initialize_homme_state grid %s\n",rgn.c_str());
 
   const auto& c = Homme::Context::singleton();
   auto& params = c.get<Homme::SimulationParams>();
@@ -1218,8 +1211,6 @@ void HommeDynamics::initialize_homme_state () {
     // Initialize p_mid/p_int
     update_pressure (m_phys_grid);
   }
-
-  fprintf(stderr,"amb> HommeDynamics::initialize_homme_state done\n");
 }
 // =========================================================================================
 void HommeDynamics::

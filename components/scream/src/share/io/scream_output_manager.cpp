@@ -81,7 +81,6 @@ setup (const ekat::Comm& io_comm, const ekat::ParameterList& params,
     const auto& fields_pl = m_params.sublist("Fields");
     for (auto it=fields_pl.sublists_names_cbegin(); it!=fields_pl.sublists_names_cend(); ++it) {
       const auto& gname = *it;
-      fprintf(stderr,"amb> scream_output_manager gname %s\n",gname.c_str());
       EKAT_REQUIRE_MSG (grids_mgr->has_grid(gname),
           "Error! Output requested on grid '" + gname + "', but the grids manager does not store such grid.\n");
 

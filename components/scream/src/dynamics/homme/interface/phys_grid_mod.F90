@@ -99,8 +99,6 @@ contains
     logical :: do_gll
     character(2) :: str
 
-    write(0,*) 'amb> phys_grids_init'
-
     fvN = -1
     do_gll = .false.
     do i=1, size(pg_types)
@@ -127,8 +125,6 @@ contains
       endif
     enddo
     
-    write(0,*) 'amb> phys_grids_init',do_gll,fvN
-
     ! Compute elem-related quantities, which are common to all phys grids
 
     ! Gather num elems on each rank
@@ -391,8 +387,6 @@ contains
     integer :: ie, icol, idof, proc, elem_gid, elem_offset
     integer, allocatable :: exclusive_scan_dofs_per_elem(:)
 
-    write(0,*) 'amb> compute_global_dofs'
-
     ! This routine's calculations are independent of physics grid type.
     allocate(exclusive_scan_dofs_per_elem(nelem))
     allocate(pg%g_dofs(get_num_global_columns(pg%pgN)))
@@ -420,8 +414,6 @@ contains
         enddo
       enddo
     enddo
-
-    write(0,*) 'amb> compute_global_dofs done'
   end subroutine compute_global_dofs
 
   subroutine compute_global_area(pg)
@@ -440,7 +432,6 @@ contains
     real(kind=c_double), dimension(np,np)  :: areaw
     integer :: ie, offset, start, ierr, ncols, i, j, k
 
-    write(0,*) 'amb> compute_global_area'
     if (masterproc) then
       write(iulog,*) 'INFO: Non-scalable action: Computing global area in SE dycore.'
     endif
@@ -481,7 +472,6 @@ contains
     call MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &
                         pg%g_area, pg%g_dofs_per_rank, pg%g_dofs_offsets, MPIreal_t, &
                         par%comm, ierr)
-    write(0,*) 'amb> compute_global_area done'
   end subroutine compute_global_area
 
   subroutine compute_global_coords(pg)
@@ -499,7 +489,6 @@ contains
     real(kind=c_double), pointer :: lat_l(:), lon_l(:)
     integer  :: ncols, ie, offset, start, ierr, i, j, k
 
-    write(0,*) 'amb> compute_global_coords ngcol,nlcol',get_num_global_columns(pg%pgN),get_num_local_columns(pg%pgN)
     if (masterproc) then
       write(iulog,*) 'INFO: Non-scalable action: Computing global coords in SE dycore.'
     end if
@@ -547,7 +536,6 @@ contains
     call MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, &
                         pg%g_lon, pg%g_dofs_per_rank, pg%g_dofs_offsets, MPIreal_t, &
                         par%comm, ierr)
-    write(0,*) 'amb> compute_global_coords done'
   end subroutine compute_global_coords
 
   subroutine phys_grid_init (pgN)
@@ -566,8 +554,6 @@ contains
     character(2) :: str
     type(pg_specs_t), pointer :: pg
 
-    write(0,*) 'amb> phys_grid_init',pgN
-
     pg => pg_specs(pgN)
 
     if (pg%inited) then
@@ -579,11 +565,7 @@ contains
     pg%inited = .true.
     pg%pgN = pgN
 
-    if (pgN>0) then
-       write(0,*) 'amb> call gfr_init'
-       call gfr_init(par, elem, pgN)
-       write(0,*) 'amb> call gfr_init returned'
-    endif
+    if (pgN>0) call gfr_init(par, elem, pgN)
 
     ! Gather the number of unique cols on each rank
     allocate(pg%g_dofs_per_rank(par%nprocs))
@@ -623,8 +605,6 @@ contains
     call compute_global_dofs (pg)
     call compute_global_coords (pg)
     call compute_global_area (pg)
-
-    write(0,*) 'amb> phys_grid_init done',pgN
   end subroutine phys_grid_init
 
 

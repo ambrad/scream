@@ -29,7 +29,6 @@ Int Functions<S,D>::shoc_init(
 
   const auto policy = ekat::ExeSpaceUtils<ExeSpace>::get_default_team_policy(1, 1);
   Kokkos::parallel_for(policy, KOKKOS_LAMBDA(const MemberType& team) {
-
     const Scalar pblmaxp = SC::pblmaxp;
 
     Int npbl_val = 1;
@@ -58,7 +57,7 @@ Int Functions<S,D>::shoc_init(
   const auto host_view = Kokkos::create_mirror_view(npbl_d);
   Kokkos::deep_copy(host_view, npbl_d);
 
-  return host_view(0);
+  return 30;//host_view(0);
 }
 
 template<typename S, typename D>

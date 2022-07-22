@@ -20,7 +20,6 @@ DynamicsDrivenGridsManager (const ekat::Comm& comm,
                             const ekat::ParameterList& p)
  : m_comm (comm)
 {
-  fprintf(stderr,"amb> DDGM::DDGM\n");
   if (!is_parallel_inited_f90()) {
     // While we're here, we can init homme's parallel session
     auto fcomm = MPI_Comm_c2f(comm.mpi_comm());
@@ -63,7 +62,6 @@ DynamicsDrivenGridsManager (const ekat::Comm& comm,
 
   // Create the grid integer codes map (i.e., int->string
   build_grid_codes ();
-  fprintf(stderr,"amb> DDGM::DDGM done\n");
 }
 
 DynamicsDrivenGridsManager::
@@ -80,7 +78,6 @@ DynamicsDrivenGridsManager::do_create_remapper (const grid_ptr_type from_grid,
                                                 const grid_ptr_type to_grid) const {
   const auto from = from_grid->name();
   const auto to   = to_grid->name();
-  fprintf(stderr,"amb> DDGM::do_create_remapper %s %s\n",from.c_str(),to.c_str());
 
   EKAT_REQUIRE_MSG ( from=="Dynamics" || to=="Dynamics",
     "Error! Either source or target grid must be 'Dynamics'.\n");
@@ -111,24 +108,20 @@ build_grids (const std::set<std::string>& grid_names)
   std::vector<int> pg_codes;
   for (const auto& gn : grid_names) {
     // Sanity check first
-    if (!(supported_grids().count(gn)==1))
-      fprintf(stderr,"amb> grid %s not supported\n",gn.c_str());
     EKAT_REQUIRE_MSG (supported_grids().count(gn)==1,
                       "Error! Grid '" + gn + "' is not supported by this grid manager.\n");
 
     auto code = m_grid_codes.at(gn);
-    fprintf(stderr,"amb> DDGM::build_grids %s %d\n",gn.c_str(),code);
     // Dyn grid has a negative code, while phys grids codes are >=0.
     // We only need to store the phys grids codes.
     if (code>=0) {
       pg_codes.push_back(code);
     }
   }
-  fprintf(stderr,"amb> DDGM::build_grids 1\n");
+
   pg_codes.push_back(m_grid_codes.at(m_ref_grid_name));
   const int* codes_ptr = pg_codes.data();
   init_grids_f90 (codes_ptr,pg_codes.size());
-  fprintf(stderr,"amb> DDGM::build_grids 2\n");
   
   // We know we need the dyn grid, so build it
   build_dynamics_grid ();
@@ -152,7 +145,6 @@ build_grids (const std::set<std::string>& grid_names)
 }
 
 void DynamicsDrivenGridsManager::build_dynamics_grid () {
-  fprintf(stderr,"amb> DDGM::build_dynamics_grid\n");
   const std::string name = "Dynamics";
   if (m_grids.find(name)==m_grids.end()) {
     // Get dimensions and create "empty" grid
@@ -206,12 +198,10 @@ void DynamicsDrivenGridsManager::build_dynamics_grid () {
 
     m_grids["Dynamics"] = dyn_grid;
   }
-  fprintf(stderr,"amb> DDGM::build_dynamics_grid done\n");
 }
 
 void DynamicsDrivenGridsManager::
 build_physics_grid (const std::string& name) {
-  fprintf(stderr,"amb> DDGM::build_physics_grid %s\n",name.c_str());
   // Build only if not built yet
   if (m_grids.find(name)==m_grids.end()) {
 
@@ -264,7 +254,6 @@ build_physics_grid (const std::string& name) {
 
     m_grids[name] = phys_grid;
   }
-  fprintf(stderr,"amb> DDGM::build_physics_grid %s done\n",name.c_str());
 }
 
 void DynamicsDrivenGridsManager::

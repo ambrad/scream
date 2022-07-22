@@ -113,7 +113,6 @@ set_params(const ekat::ParameterList& atm_params)
 
   const auto hgn = "Physics PG2";
   fvphyshack = m_atm_params.sublist("Grids Manager").get<std::string>("Reference Grid") == hgn;
-  fprintf(stderr,"amb> fvphyshack %d\n", int(fvphyshack));
   if (fvphyshack) {
     // XML selectors don't work for the atmosphere_processes Grids entry; see
     // issue #1725. Work around this by setting the right values now.
@@ -219,7 +218,6 @@ void AtmosphereDriver::create_fields()
   // required/computed fields and groups. Let them register them in the FM
   for (auto it : m_grids_manager->get_repo()) {
     auto grid = it.second;
-    fprintf(stderr,"amb> AD FM alloc grid %s\n",grid->name().c_str());
     m_field_mgrs[grid->name()] = std::make_shared<field_mgr_type>(grid);
     m_field_mgrs[grid->name()]->registration_begins();
   }
@@ -649,7 +647,6 @@ void AtmosphereDriver::create_logger () {
 
 void AtmosphereDriver::set_initial_conditions ()
 {
-  fprintf(stderr,"amb> AtmosphereDriver::set_initial_conditions\n");
   m_atm_logger->info("  [EAMXX] set_initial_conditions ...");
 
   auto& ic_pl = m_atm_params.sublist("Initial Conditions");
@@ -674,14 +671,10 @@ void AtmosphereDriver::set_initial_conditions ()
 
     const auto& ic_pl_grid = ic_pl.sublist(grid_name);
 
-    fprintf(stderr,"amb> atmosphere_driver process_ic_field gn %s f %s fid %s\n",
-            grid_name.c_str(), f.name().c_str(), fname.c_str());
-
     if (fvphyshack and grid_name == "Physics PG2") return;
 
     // First, check if the input file contains constant values for some of the fields
     if (ic_pl_grid.isParameter(fname)) {
-      fprintf(stderr,"amb> atmosphere_driver ic_pl_grid.isParameter(fname) %s\n",fname.c_str());
       // The user provided a constant value for this field. Simply use that.
       if (ic_pl_grid.isType<double>(fname) or ic_pl_grid.isType<std::vector<double>>(fname)) {
         initialize_constant_field(fid, ic_pl_grid);
@@ -746,7 +739,6 @@ void AtmosphereDriver::set_initial_conditions ()
   for (auto& it1 : ic_fields_names) {
     const auto& grid_name =  it1.first;
     auto fm = m_field_mgrs.at(grid_name);
-    fprintf(stderr,"amb> bundled field loop grid %s\n",grid_name.c_str());
 
     // Note: every time we erase an entry in the vector, all iterators are
     //       invalidated, so we need to re-start the for loop.
@@ -873,7 +865,6 @@ void AtmosphereDriver::set_initial_conditions ()
   m_atm_logger->debug("    [EAMXX] Processing subfields ... done!");
 
   m_atm_logger->info("  [EAMXX] set_initial_conditions ... done!");
-  fprintf(stderr,"amb> AtmosphereDriver::set_initial_conditions done\n");
 }
 
 void AtmosphereDriver::

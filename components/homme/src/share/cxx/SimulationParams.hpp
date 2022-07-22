@@ -18,7 +18,7 @@ namespace Homme
  */
 struct SimulationParams
 {
-  SimulationParams() : ftype(ForcingAlg::FORCING_OFF), params_set(false), nsplit(0) {}
+  SimulationParams() : ftype(ForcingAlg::FORCING_OFF), nsplit(0), params_set(false) {}
 
   void print();
 
