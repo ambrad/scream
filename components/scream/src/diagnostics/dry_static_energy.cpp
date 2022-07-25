@@ -53,7 +53,7 @@ void DryStaticEnergyDiagnostic::initialize_impl(const RunType /* run_type */)
 
 }
 // =========================================================================================
-void DryStaticEnergyDiagnostic::run_impl(const int /* dt */)
+void DryStaticEnergyDiagnostic::compute_diagnostic_impl()
 {
 
   const auto npacks     = ekat::npack<Pack>(m_num_levs);
@@ -70,6 +70,7 @@ void DryStaticEnergyDiagnostic::run_impl(const int /* dt */)
   // Set surface geopotential for this diagnostic
   const Real surf_geopotential = 0.0;
 
+  const int num_levs = m_num_levs;
   view_1d dz("",npacks);
   view_1d z_int("",npacks_p1);
   view_1d z_mid("",npacks);
@@ -84,9 +85,9 @@ void DryStaticEnergyDiagnostic::run_impl(const int /* dt */)
       dz(jpack) = PF::calculate_dz(pseudo_density_mid(icol,jpack), p_mid(icol,jpack), T_mid(icol,jpack), qv_mid(icol,jpack));
     });
     team.team_barrier();
-    PF::calculate_z_int(team,m_num_levs,dz,surf_geopotential,z_int);
+    PF::calculate_z_int(team,num_levs,dz,surf_geopotential,z_int);
     team.team_barrier();
-    PF::calculate_z_mid(team,m_num_levs,z_int,z_mid);
+    PF::calculate_z_mid(team,num_levs,z_int,z_mid);
     team.team_barrier();
     const auto& dse_s = ekat::subview(dse,icol);
     Kokkos::parallel_for(Kokkos::TeamThreadRange(team, npacks), [&] (const Int& jpack) {
