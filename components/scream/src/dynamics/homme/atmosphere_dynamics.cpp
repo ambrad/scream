@@ -412,10 +412,8 @@ void HommeDynamics::initialize_impl (const RunType run_type)
 
   // For BFB restarts, set nstep counter in Homme's TimeLevel to match
   // what's in the timestamp (which, for restarted runs, is read from restart file)
-#pragma message "~*~ ~*~ ~*~ ~*~ ~*~ ~*~ ~*~ REMOVE ME PLEASE NOT FOR MERGING ~*~ ~*~ ~*~ ~*~ ~*~ ~*~ ~*~"
-  int fac = 6;
-  set_homme_param("num_steps",fac*timestamp().get_num_steps());
-  Homme::Context::singleton().get<Homme::TimeLevel>().nstep = fac*timestamp().get_num_steps();
+  set_homme_param("num_steps",timestamp().get_num_steps());
+  Homme::Context::singleton().get<Homme::TimeLevel>().nstep = timestamp().get_num_steps();
 
   // Complete homme model initialization
   prim_init_model_f90 ();
