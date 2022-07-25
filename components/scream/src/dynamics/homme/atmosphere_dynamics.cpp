@@ -168,8 +168,8 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
   add_field<Computed>("pseudo_density",FL({COL,     LEV},{ncols,  nlev_mid}),Pa,    pgn,N);
   add_field<Computed>("pseudo_density_dry",FL({COL, LEV},{ncols,  nlev_mid}),Pa,    pgn,N);
   add_field<Updated> ("ps",            FL({COL         },{ncols           }),Pa,    pgn);
-  add_field<Required>("qv",            FL({COL,     LEV},{ncols,  nlev_mid}),Q,     pgn,"tracers",N);
-  add_field<Required>("phis",          FL({COL         },{ncols           }),m2/s2, pgn);
+  add_field<Updated >("qv",            FL({COL,     LEV},{ncols,  nlev_mid}),Q,     pgn,"tracers",N);
+  add_field<Updated >("phis",          FL({COL         },{ncols           }),m2/s2, pgn);
   add_field<Computed>("p_int",         FL({COL,    ILEV},{ncols,  nlev_int}),Pa,    pgn,N);
   add_field<Computed>("p_mid",         FL({COL,     LEV},{ncols,  nlev_mid}),Pa,    pgn,N);
   add_field<Computed>("p_dry_int",     FL({COL,    ILEV},{ncols,  nlev_int}),Pa,    pgn,N);
@@ -190,6 +190,8 @@ void HommeDynamics::set_grids (const std::shared_ptr<const GridsManager> grids_m
     add_field<Required>("phis",          FL({COL         },{nc           }),m2/s2, rgn);
     add_group<Required>("tracers",rgn,N, Bundling::Required, DerivationType::Import, "tracers", pgn);
     fv_phys_rrtmgp_active_gases_init(grids_manager);
+    // This is needed for the dp_ref init in initialize_homme_state.
+    add_field<Computed>("pseudo_density",FL({COL,     LEV},{nc,  nlev_mid}),Pa,    rgn,N);
   }
 
   // Dynamics grid states
@@ -1109,7 +1111,7 @@ void HommeDynamics::initialize_homme_state () {
   //       but it used KokkosKernels packs, which are incompatible with ekat::Pack.
   //       If Homme switched to ekat::Pack, you could do the loop below with packs.
   const auto ps0 = hvcoord.ps0;
-  const auto dp_ref = get_field_out("pseudo_density").get_view<Real**>();
+  const auto dp_ref = get_field_out("pseudo_density",rgn).get_view<Real**>();
   const auto ps_ref = get_field_in("ps",rgn).get_view<const Real*>();
   const auto hyai = hvcoord.hybrid_ai;
   const auto hybi = hvcoord.hybrid_bi;

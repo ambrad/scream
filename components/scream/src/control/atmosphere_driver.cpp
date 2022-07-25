@@ -224,6 +224,7 @@ void AtmosphereDriver::create_fields()
 
   // Register required/computed fields
   for (const auto& req : m_atm_process_group->get_required_field_requests()) {
+    fprintf(stderr,"amb> get_required_field_requests %s %s\n",req.fid.get_grid_name().c_str(),req.fid.name().c_str());
     m_field_mgrs.at(req.fid.get_grid_name())->register_field(req);
   }
   for (const auto& req : m_atm_process_group->get_computed_field_requests()) {
@@ -328,6 +329,7 @@ void AtmosphereDriver::create_fields()
   for (const auto& req : m_atm_process_group->get_required_field_requests()) {
     const auto& fid = req.fid;
     auto fm = get_field_mgr(fid.get_grid_name());
+    fprintf(stderr,"amb> set_required_field %s %s\n",fid.get_grid_name().c_str(),fid.name().c_str());
     m_atm_process_group->set_required_field(fm->get_field(fid).get_const());
   }
 
@@ -649,6 +651,7 @@ void AtmosphereDriver::set_initial_conditions ()
     const auto& fid = f.get_header().get_identifier();
     const auto& fname = fid.name();
     const auto& grid_name = fid.get_grid_name();
+    fprintf(stderr,"amb> process_ic_field %s %s\n",grid_name.c_str(),fname.c_str());
 
     if (fvphyshack and grid_name == "Physics PG2") return;
 
@@ -681,11 +684,18 @@ void AtmosphereDriver::set_initial_conditions ()
         // HommeDynamics::set_grids, but I couldn't find the means to get the
         // list of fields. I think the issue is that you can't access group
         // objects until some registration period ends. So instead do it here,
-        // where the list is definitely avaiable.
+        // where the list is definitely available.
         auto& this_grid_ic_fnames = ic_fields_names[grid_name];
         for (const auto& e : c) {
           const auto f = e.lock();
-          this_grid_ic_fnames.push_back(f->get_identifier().name());
+          const auto& fid = f->get_identifier();
+          const auto& fname = fid.name();
+          if (ic_pl.isParameter(fname) and ic_pl.isType<double>(fname)) {
+            initialize_constant_field(fid, ic_pl);
+            fields_inited[grid_name].push_back(fname);
+          } else {
+            this_grid_ic_fnames.push_back(fname);
+          }
         }
       }
     }
