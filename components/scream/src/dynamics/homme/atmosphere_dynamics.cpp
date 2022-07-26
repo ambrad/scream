@@ -1051,7 +1051,7 @@ void HommeDynamics::restart_homme_state () {
   auto uv_view     = m_helper_fields.at("uv_prev").get_view<Pack***>();
   auto V_prev_view = m_helper_fields.at("FM_phys").get_view<Pack***>();
   auto T_prev_view = m_helper_fields.at("FT_phys").get_view<Pack**>();
-  auto dp_view     = get_field_in("pseudo_density",pgn).get_view<const Pack**>();
+  auto dp_view     = get_field_out("pseudo_density",pgn).get_view<const Pack**>();
   auto p_mid_view  = get_field_out("p_mid").get_view<Pack**>();
   auto qv_view     = qv_prev_ref->get_view<Pack**>();
 
