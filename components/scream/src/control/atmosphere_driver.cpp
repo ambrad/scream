@@ -216,7 +216,6 @@ void AtmosphereDriver::create_fields()
 
   // Register required/computed fields
   for (const auto& req : m_atm_process_group->get_required_field_requests()) {
-    fprintf(stderr,"amb> get_required_field_requests %s %s\n",req.fid.get_grid_name().c_str(),req.fid.name().c_str());
     m_field_mgrs.at(req.fid.get_grid_name())->register_field(req);
   }
   for (const auto& req : m_atm_process_group->get_computed_field_requests()) {
@@ -321,7 +320,6 @@ void AtmosphereDriver::create_fields()
   for (const auto& req : m_atm_process_group->get_required_field_requests()) {
     const auto& fid = req.fid;
     auto fm = get_field_mgr(fid.get_grid_name());
-    fprintf(stderr,"amb> set_required_field %s %s\n",fid.get_grid_name().c_str(),fid.name().c_str());
     m_atm_process_group->set_required_field(fm->get_field(fid).get_const());
   }
 
@@ -659,7 +657,6 @@ void AtmosphereDriver::set_initial_conditions ()
     const auto& fid = f.get_header().get_identifier();
     const auto& fname = fid.name();
     const auto& grid_name = fid.get_grid_name();
-    fprintf(stderr,"amb> process_ic_field %s %s\n",grid_name.c_str(),fname.c_str());
 
     if (fvphyshack and grid_name == "Physics PG2") return;
 
