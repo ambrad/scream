@@ -221,7 +221,7 @@ void HommeDynamics::remap_fv_phys_to_dyn () const {
 // rrtmgp active_gases initialization is treated properly.
 
 struct TraceGasesWorkaround {
-  bool restart;
+  bool restart{false};
   std::shared_ptr<AbstractRemapper> remapper;
   std::vector<std::string> active_gases; // other than h2o
 };
@@ -242,7 +242,7 @@ void fv_phys_rrtmgp_active_gases_set_restart (const bool restart) {
 
 void HommeDynamics
 ::fv_phys_rrtmgp_active_gases_init (const std::shared_ptr<const GridsManager>& gm) {
-  if (s_tgw.restart) return;
+  if (s_tgw.restart) return; // always false b/c it hasn't been set yet
   using namespace ekat::units;
   using namespace ShortFieldTagsNames;
   auto kgkg = kg/kg;
@@ -262,7 +262,15 @@ void HommeDynamics
 }
 
 void HommeDynamics::fv_phys_rrtmgp_active_gases_remap () {
-  if (s_tgw.restart) return;
+  if (s_tgw.restart) {
+    // Note re: restart: Ideally, we'd know if we're restarting before having to
+    // call add_field above. However, we only find out after. Because the pg2
+    // field was declared Updated, it will read the restart data. But we don't
+    // actually want to remap from CGLL to pg2 now. So delete the remapper and
+    // return.
+    s_tgw.remapper = nullptr;
+    return;
+  }
   using namespace ShortFieldTagsNames;
   const auto& dgn = m_dyn_grid ->name();
   const auto& rgn = m_cgll_grid->name();

@@ -446,7 +446,8 @@ initialize_fields (const util::TimeStamp& run_t0, const util::TimeStamp& case_t0
   m_atm_logger->info("  [EAMxx] Run  start time stamp: " + run_t0.to_string());
   m_atm_logger->info("  [EAMxx] Case start time stamp: " + case_t0.to_string());
 
-  if (fvphyshack) fv_phys_rrtmgp_active_gases_set_restart(m_case_t0 < m_run_t0);
+  // See the [rrtmgp active gases] note in dynamics/homme/atmosphere_dynamics_fv_phys.cpp.
+  if (fvphyshack) fv_phys_rrtmgp_active_gases_set_restart(case_t0 < run_t0);
 
   // See if we need to print a DAG. We do this first, cause if any input
   // field is missing from the initial condition file, an error will be thrown.
