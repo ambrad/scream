@@ -114,14 +114,6 @@ set_params(const ekat::ParameterList& atm_params)
   const auto hgn = "Physics PG2";
   fvphyshack = m_atm_params.sublist("Grids Manager").get<std::string>("Reference Grid") == hgn;
   if (fvphyshack) {
-    // XML selectors don't work for the atmosphere_processes Grids entry; see
-    // issue #1725. Work around this by setting the right values now.
-    auto& pl = const_cast<ekat::ParameterList&>(atm_params.sublist("atmosphere_processes").sublist("physics"));
-    for (const auto c : {"shoc", "cldFraction", "p3"})
-      pl.sublist("mac_aero_mic").sublist(c).set<std::string>("Grid", hgn);
-    pl.sublist("rrtmgp").set<std::string>("Grid", hgn);
-  }
-  if (fvphyshack) {
     // See the [rrtmgp active gases] note in dynamics/homme/atmosphere_dynamics_fv_phys.cpp.
     fv_phys_rrtmgp_active_gases_init(m_atm_params);
   }

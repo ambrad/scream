@@ -9,8 +9,6 @@
 #include "ekat/ekat_assert.hpp"
 #include "ekat/util/ekat_units.hpp"
 
-#include "control/fvphyshack.hpp"
-
 #include <array>
 
 namespace scream
