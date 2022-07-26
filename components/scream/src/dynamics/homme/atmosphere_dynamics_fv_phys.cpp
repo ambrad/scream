@@ -221,6 +221,7 @@ void HommeDynamics::remap_fv_phys_to_dyn () const {
 // rrtmgp active_gases initialization is treated properly.
 
 struct TraceGasesWorkaround {
+  bool restart;
   std::shared_ptr<AbstractRemapper> remapper;
   std::vector<std::string> active_gases; // other than h2o
 };
@@ -235,8 +236,14 @@ void fv_phys_rrtmgp_active_gases_init (const ekat::ParameterList& p) {
       s_tgw.active_gases.push_back(e);
 }
 
+void fv_phys_rrtmgp_active_gases_set_restart (const bool restart) {
+  fprintf(stderr,"amb> restart %d\n",int(restart));
+  s_tgw.restart = restart;
+}
+
 void HommeDynamics
 ::fv_phys_rrtmgp_active_gases_init (const std::shared_ptr<const GridsManager>& gm) {
+  if (s_tgw.restart) return;
   using namespace ekat::units;
   using namespace ShortFieldTagsNames;
   auto kgkg = kg/kg;
@@ -255,6 +262,7 @@ void HommeDynamics
 }
 
 void HommeDynamics::fv_phys_rrtmgp_active_gases_remap () {
+  if (s_tgw.restart) return;
   using namespace ShortFieldTagsNames;
   const auto& dgn = m_dyn_grid ->name();
   const auto& rgn = m_cgll_grid->name();
@@ -273,6 +281,7 @@ void HommeDynamics::fv_phys_rrtmgp_active_gases_remap () {
       r->register_field(get_field_in(e, rgn), m_helper_fields.at(e));
     r->registration_ends();
     r->remap(true);
+    fprintf(stderr,"amb> release remapper\n");
     s_tgw.remapper = nullptr;
   }
   { // DGLL -> PGN
