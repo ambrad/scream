@@ -461,7 +461,8 @@ _TESTS = {
             "ERP_D_Ln9.ne4_ne4.F2010-SCREAMv1",
             "ERS_Ln9.ne4_ne4.F2000-SCREAMv1-AQP1",
             "SMS_D_Ln9.ne4_ne4.F2010-SCREAMv1-noAero",
-            "ERP_D_Ln9.ne4pg2_ne4pg2.F2010-SCREAMv1-noAero.scream-slpg2",
+            "ERP_D_Ln9.ne4pg2_ne4pg2.F2010-SCREAMv1",
+            "ERS_Ln9.ne4pg2_ne4pg2.F2010-SCREAMv1",
             )
     },
 
@@ -470,7 +471,8 @@ _TESTS = {
         "tests" : (
             #  "SMS_D_Ln2.ne30_ne30.F2000-SCREAMv1-AQP1", # Uncomment once IC file for ne30 is ready
             "ERS_Ln22.ne30_ne30.F2010-SCREAMv1",
-            "PEM_Ln9.ne30_ne30.F2010-SCREAMv1"
+            "PEM_Ln9.ne30_ne30.F2010-SCREAMv1",
+            "ERS_Ln22.ne30pg2_ne30pg2.F2010-SCREAMv1",
             )
     },
 
