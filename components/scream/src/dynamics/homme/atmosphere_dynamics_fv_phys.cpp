@@ -237,7 +237,6 @@ void fv_phys_rrtmgp_active_gases_init (const ekat::ParameterList& p) {
 }
 
 void fv_phys_rrtmgp_active_gases_set_restart (const bool restart) {
-  fprintf(stderr,"amb> restart %d\n",int(restart));
   s_tgw.restart = restart;
 }
 
@@ -256,7 +255,8 @@ void HommeDynamics
   constexpr int ps = SCREAM_SMALL_PACK_SIZE;
   for (const auto& e : s_tgw.active_gases) {
     add_field<Required>(e, FieldLayout({COL,LEV},{rnc,nlev}), kgkg, rgn, ps);
-    add_field<Computed>(e, FieldLayout({COL,LEV},{pnc,nlev}), kgkg, pgn, ps);
+    // 'Updated' so that it gets written to the restart file.
+    add_field<Updated >(e, FieldLayout({COL,LEV},{pnc,nlev}), kgkg, pgn, ps);
   }
   s_tgw.remapper = gm->create_remapper(m_cgll_grid, m_dyn_grid);
 }
@@ -281,7 +281,6 @@ void HommeDynamics::fv_phys_rrtmgp_active_gases_remap () {
       r->register_field(get_field_in(e, rgn), m_helper_fields.at(e));
     r->registration_ends();
     r->remap(true);
-    fprintf(stderr,"amb> release remapper\n");
     s_tgw.remapper = nullptr;
   }
   { // DGLL -> PGN
