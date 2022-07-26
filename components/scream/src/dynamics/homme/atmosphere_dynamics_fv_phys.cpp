@@ -262,56 +262,55 @@ void HommeDynamics
 }
 
 void HommeDynamics::fv_phys_rrtmgp_active_gases_remap () {
-  if (s_tgw.restart) {
-    // Note re: restart: Ideally, we'd know if we're restarting before having to
-    // call add_field above. However, we only find out after. Because the pg2
-    // field was declared Updated, it will read the restart data. But we don't
-    // actually want to remap from CGLL to pg2 now. So delete the remapper and
-    // return.
-    s_tgw.remapper = nullptr;
-    return;
-  }
-  using namespace ShortFieldTagsNames;
-  const auto& dgn = m_dyn_grid ->name();
+  // Note re: restart: Ideally, we'd know if we're restarting before having to
+  // call add_field above. However, we only find out after. Because the pg2
+  // field was declared Updated, it will read the restart data. But we don't
+  // actually want to remap from CGLL to pg2 now. So if restarting, just do the
+  // cleanup part at the end.
   const auto& rgn = m_cgll_grid->name();
-  const auto& pgn = m_phys_grid->name();
-  constexpr int NGP = HOMMEXX_NP;
-  const int ngll = NGP*NGP;
-  const int npg = m_phys_grid_pgN*m_phys_grid_pgN;
-  const int nelem = m_dyn_grid->get_num_local_dofs()/ngll;
-  { // CGLL -> DGLL
-    const auto nlev = m_dyn_grid->get_num_vertical_levels();
-    for (const auto& e : s_tgw.active_gases)
-      create_helper_field(e, {EL,GP,GP,LEV}, {nelem,NGP,NGP,nlev}, dgn);
-    auto& r = s_tgw.remapper;
-    r->registration_begins();
-    for (const auto& e : s_tgw.active_gases)
-      r->register_field(get_field_in(e, rgn), m_helper_fields.at(e));
-    r->registration_ends();
-    r->remap(true);
-    s_tgw.remapper = nullptr;
-  }
-  { // DGLL -> PGN
-    const auto& c = Homme::Context::singleton();
-    auto& gfr = c.get<Homme::GllFvRemap>();
-    const auto time_idx = c.get<Homme::TimeLevel>().n0;
-    for (const auto& e : s_tgw.active_gases) {
-      const auto& f_dgll = m_helper_fields.at(e);
-      const auto& f_phys = get_field_out(e, pgn);
-      const auto& v_dgll = f_dgll.get_view<const Real****>();
-      const auto& v_phys = f_phys.get_view<Real**>();
-      assert(v_dgll.extent_int(0) == nelem and
-             v_dgll.extent_int(1)*v_dgll.extent_int(2) == ngll);
-      const auto in_dgll = Homme::GllFvRemap::CPhys3T(
-        v_dgll.data(), nelem, 1, ngll, v_dgll.extent_int(3));
-      assert(nelem*npg == v_phys.extent_int(0));
-      const auto out_phys = Homme::GllFvRemap::Phys3T(
-        v_phys.data(), nelem, npg, 1, v_phys.extent_int(1));
-      gfr.remap_tracer_dyn_to_fv_phys(time_idx, 1, in_dgll, out_phys);
-      Kokkos::fence();
+  if (not s_tgw.restart) {
+    using namespace ShortFieldTagsNames;
+    const auto& dgn = m_dyn_grid ->name();
+    const auto& pgn = m_phys_grid->name();
+    constexpr int NGP = HOMMEXX_NP;
+    const int ngll = NGP*NGP;
+    const int npg = m_phys_grid_pgN*m_phys_grid_pgN;
+    const int nelem = m_dyn_grid->get_num_local_dofs()/ngll;
+    { // CGLL -> DGLL
+      const auto nlev = m_dyn_grid->get_num_vertical_levels();
+      for (const auto& e : s_tgw.active_gases)
+        create_helper_field(e, {EL,GP,GP,LEV}, {nelem,NGP,NGP,nlev}, dgn);
+      auto& r = s_tgw.remapper;
+      r->registration_begins();
+      for (const auto& e : s_tgw.active_gases)
+        r->register_field(get_field_in(e, rgn), m_helper_fields.at(e));
+      r->registration_ends();
+      r->remap(true);
+      s_tgw.remapper = nullptr;
+    }
+    { // DGLL -> PGN
+      const auto& c = Homme::Context::singleton();
+      auto& gfr = c.get<Homme::GllFvRemap>();
+      const auto time_idx = c.get<Homme::TimeLevel>().n0;
+      for (const auto& e : s_tgw.active_gases) {
+        const auto& f_dgll = m_helper_fields.at(e);
+        const auto& f_phys = get_field_out(e, pgn);
+        const auto& v_dgll = f_dgll.get_view<const Real****>();
+        const auto& v_phys = f_phys.get_view<Real**>();
+        assert(v_dgll.extent_int(0) == nelem and
+               v_dgll.extent_int(1)*v_dgll.extent_int(2) == ngll);
+        const auto in_dgll = Homme::GllFvRemap::CPhys3T(
+          v_dgll.data(), nelem, 1, ngll, v_dgll.extent_int(3));
+        assert(nelem*npg == v_phys.extent_int(0));
+        const auto out_phys = Homme::GllFvRemap::Phys3T(
+          v_phys.data(), nelem, npg, 1, v_phys.extent_int(1));
+        gfr.remap_tracer_dyn_to_fv_phys(time_idx, 1, in_dgll, out_phys);
+        Kokkos::fence();
+      }
     }
   }
-  // Done with these fields, so remove them.
+  // Done with all of these, so remove them.
+  s_tgw.remapper = nullptr;
   for (const auto& e : s_tgw.active_gases)
     m_helper_fields.erase(e);
   for (const auto& e : s_tgw.active_gases)
