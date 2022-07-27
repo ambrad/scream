@@ -147,11 +147,7 @@ void AtmosphereOutput::init()
   set_diagnostics();
 
   for (const auto& var_name : m_fields_names) {
-    try {
-      register_dimensions(var_name);
-    } catch (...) {
-      fprintf(stderr,"amb> scorpio_output init couldn't register %s\n",var_name.c_str());
-    }
+    register_dimensions(var_name);
   }
 
   // Now that the fields have been gathered register the local views which will be used to determine output data to be written.
@@ -194,12 +190,8 @@ void AtmosphereOutput::run (const std::string& filename, const bool is_write_ste
     const auto  rank = layout.rank();
 
     // Safety check: make sure that the field was written at least once before using it.
-#if 0
     EKAT_REQUIRE_MSG (field.get_header().get_tracking().get_time_stamp().is_valid(),
-                      "Error! Output field '" + name + "' on grid '" +
-                      field.get_header().get_identifier().get_grid_name() +
-                      "' has not been initialized yet\n.");
-#endif
+        "Error! Output field '" + name + "' has not been initialized yet\n.");
 
     const bool is_diagnostic = (m_diagnostics.find(name) != m_diagnostics.end());
     const bool is_aliasing_field_view =
@@ -412,12 +404,6 @@ void AtmosphereOutput::register_views()
 {
   // Cycle through all fields and register.
   for (auto const& name : m_fields_names) {
-    try {
-      get_field(name);
-    } catch (...) {
-      fprintf(stderr,"amb> scorpio_output register_views get_field can't find %s\n",name.c_str());
-      continue;
-    }
     auto field = get_field(name);
     bool is_diagnostic = (m_diagnostics.find(name) != m_diagnostics.end());
 
@@ -654,14 +640,9 @@ void AtmosphereOutput::set_diagnostics()
       params.set<std::string>("Diagnostic Name", fname);
       const auto grid_name = m_io_grid->name(); 
       params.set<std::string>("Grid", grid_name);
-      try {
-        auto diag = diag_factory.create(fname,m_comm,params);
-        diag->set_grids(m_grids_manager);
-        m_diagnostics.emplace(fname,diag);
-      } catch (...) {
-        fprintf(stderr,"amb> scorpio_output set_diagnostics exception fname %s grid %s\n",
-                fname.c_str(),grid_name.c_str());
-      }
+      auto diag = diag_factory.create(fname,m_comm,params);
+      diag->set_grids(m_grids_manager);
+      m_diagnostics.emplace(fname,diag);
     }
   }
   // Set required fields for all diagnostics

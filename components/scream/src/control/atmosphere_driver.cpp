@@ -743,20 +743,16 @@ void AtmosphereDriver::set_initial_conditions ()
       auto& names = it1.second;
       for (auto it2=names.begin(); it2!=names.end(); ++it2) {
         const auto& fname = *it2;
-        try {
-          auto f = fm->get_field(fname);
-          auto p = f.get_header().get_parent().lock();
-          if (p) {
-            const auto& pname = p->get_identifier().name();
-            if (ekat::contains(fields_inited[grid_name],pname)) {
-              // The parent is already inited. No need to init this field as well.
-              names.erase(it2);
-              run_again = true;
-              break;
-            }
+        auto f = fm->get_field(fname);
+        auto p = f.get_header().get_parent().lock();
+        if (p) {
+          const auto& pname = p->get_identifier().name();
+          if (ekat::contains(fields_inited[grid_name],pname)) {
+            // The parent is already inited. No need to init this field as well.
+            names.erase(it2);
+            run_again = true;
+            break;
           }
-        } catch (...) {
-          fprintf(stderr,"amb> bundled field loop: can't find %s\n", fname.c_str());
         }
       }
     }
