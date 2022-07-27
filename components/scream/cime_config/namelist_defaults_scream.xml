@@ -321,8 +321,8 @@ tweaking their $case/namelist_scream.xml file.
     ${DIN_LOC_ROOT}/atm/scream/init/screami_ne4np4L72_20220524.nc,
     <!-- ${DIN_LOC_ROOT}/atm/scream/init/screami_ne120np4L72_20220524.nc, -->
     <!-- ${DIN_LOC_ROOT}/atm/scream/init/screami_ne512np4L128_20220525.nc, -->
-    ${DIN_LOC_ROOT}/atm/scream/init/scream-aquaplanet_init_ne4np4_L72_20220524.nc
-    ${DIN_LOC_ROOT}/atm/scream/init/map_ne30np4_to_ne4pg2_mono.20220714.nc
+    ${DIN_LOC_ROOT}/atm/scream/init/scream-aquaplanet_init_ne4np4_L72_20220524.nc,
+    ${DIN_LOC_ROOT}/atm/scream/init/map_ne30np4_to_ne4pg2_mono.20220714.nc,
     ${DIN_LOC_ROOT}/atm/scream/init/map_ne30np4_to_ne30pg2_mono.20220714.nc
   </input_files>
 
