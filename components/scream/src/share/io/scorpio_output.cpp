@@ -190,8 +190,13 @@ void AtmosphereOutput::run (const std::string& filename, const bool is_write_ste
     const auto  rank = layout.rank();
 
     // Safety check: make sure that the field was written at least once before using it.
+#if 0
+#pragma message "STILL NEED THIS?"
     EKAT_REQUIRE_MSG (field.get_header().get_tracking().get_time_stamp().is_valid(),
-        "Error! Output field '" + name + "' has not been initialized yet\n.");
+                      "Error! Output field '" + name + "' on grid '" +
+                      field.get_header().get_identifier().get_grid_name() +
+                      "' has not been initialized yet\n.");
+#endif
 
     const bool is_diagnostic = (m_diagnostics.find(name) != m_diagnostics.end());
     const bool is_aliasing_field_view =
