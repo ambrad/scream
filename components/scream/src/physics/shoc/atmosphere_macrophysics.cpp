@@ -3,6 +3,9 @@
 
 #include "share/property_checks/field_positivity_check.hpp"
 #include "share/property_checks/field_within_interval_check.hpp"
+
+#include "control/fvphyshack.hpp"
+
 namespace scream
 {
 
@@ -65,7 +68,9 @@ void SHOCMacrophysics::set_grids(const std::shared_ptr<const GridsManager> grids
 
   // These variables are needed by the interface, but not actually passed to shoc_main.
   // TODO: Replace pref_mid in the FM with pref_mid read in from the grid data.
-  add_field<Required>("pref_mid",         pref_mid_layout,      Pa,      grid_name, ps);
+  add_field<Required>("pref_mid",         pref_mid_layout,      Pa,
+                      fvphyshack ? "Physics GLL" : grid_name,
+                      ps);
   add_field<Required>("omega",            scalar3d_layout_mid,  Pa/s,    grid_name, ps);
   add_field<Required>("surf_sens_flux",   scalar2d_layout_col,  W/m2,    grid_name);
   add_field<Required>("surf_evap",        scalar2d_layout_col,  kg/m2/s, grid_name);
