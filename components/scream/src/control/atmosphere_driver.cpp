@@ -659,8 +659,6 @@ void AtmosphereDriver::set_initial_conditions ()
     const auto& fname = fid.name();
     const auto& grid_name = fid.get_grid_name();
 
-    if (fvphyshack and grid_name == "Physics PG2") return;
-
     // First, check if the input file contains constant values for some of the fields
     if (ic_pl.isParameter(fname)) {
       // The user provided a constant value for this field. Simply use that.
@@ -677,7 +675,7 @@ void AtmosphereDriver::set_initial_conditions ()
       } else {
         EKAT_REQUIRE_MSG (false, "ERROR: invalid assignment for variable " + fname + ", only scalar double or string, or vector double arguments are allowed");
       }
-    } else {
+    } else if (not (fvphyshack and grid_name == "Physics PG2")) {
       // If this field is the parent of other subfields, we only read from file the subfields.
       auto c = f.get_header().get_children();
       if (c.size()==0) {
