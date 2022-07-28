@@ -461,8 +461,8 @@ _TESTS = {
             "ERP_D_Ln9.ne4_ne4.F2010-SCREAMv1",
             "ERS_Ln9.ne4_ne4.F2000-SCREAMv1-AQP1",
             "SMS_D_Ln9.ne4_ne4.F2010-SCREAMv1-noAero",
-            "ERP_D_Ln9.ne4pg2_ne4pg2.F2010-SCREAMv1",
-            "ERS_Ln9.ne4pg2_ne4pg2.F2010-SCREAMv1",
+            "ERP_Ln9.ne4pg2_ne4pg2.F2010-SCREAMv1",
+            "ERS_D_Ln9.ne4pg2_ne4pg2.F2010-SCREAMv1",
             )
     },
 
