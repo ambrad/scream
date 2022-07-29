@@ -14,7 +14,7 @@
 // Options
 
 #ifdef NDEBUG
-//# undef NDEBUG
+# undef NDEBUG
 #endif
 
 #ifndef NDEBUG

@@ -44,6 +44,7 @@ Request::~Request () {
 template <> MPI_Datatype get_type<int>() { return MPI_INT; }
 template <> MPI_Datatype get_type<double>() { return MPI_DOUBLE; }
 template <> MPI_Datatype get_type<long>() { return MPI_LONG_INT; }
+template <> MPI_Datatype get_type<long long>() { return MPI_LONG_LONG_INT; }
 
 int waitany (int count, Request* reqs, int* index, MPI_Status* stats) {
 #ifdef COMPOSE_DEBUG_MPI

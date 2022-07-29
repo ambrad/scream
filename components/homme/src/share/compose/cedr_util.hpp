@@ -50,7 +50,7 @@ void prarr (const std::string& name, const T* const v, const size_t n) {
 }
 #define mprarr(m) cedr::util::prarr(#m, m.data(), m.size())
 
-#ifndef NDEBUG
+#if 1 //ndef NDEBUG
 # define cedr_assert(condition) do {                                    \
     if ( ! (condition)) {                                               \
       std::stringstream _ss_;                                           \

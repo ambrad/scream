@@ -316,6 +316,23 @@ void RRTMGPRadiation::initialize_impl(const RunType /* run_type */) {
 // =========================================================================================
 
 void RRTMGPRadiation::run_impl (const int dt) {
+  //#pragma "no radiation"
+  //  return;
+  if (0) {
+    for (const auto& gn : m_gas_names) {
+      if (gn == "h2o") continue;
+      const auto vd = get_field_in(gn).get_view<const Real**>();
+      const auto v = Kokkos::create_mirror_view(vd);
+      Kokkos::deep_copy(v, vd);
+      Real fmin = 1e30, fmax = -1e30;
+      for (int i = 0; i < v.extent_int(0); ++i)
+        for (int j = 0; j < v.extent_int(1); ++j) {
+          fmin = std::min(fmin, v(i,j));
+          fmax = std::max(fmax, v(i,j));
+        }
+      fprintf(stderr,"amb> active_gases %s %1.2e %1.2e\n",gn.c_str(),fmin,fmax);
+    }
+  }
   using PF = scream::PhysicsFunctions<DefaultDevice>;
   using PC = scream::physics::Constants<Real>;
   using CO = scream::ColumnOps<DefaultDevice,Real>;

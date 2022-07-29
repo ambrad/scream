@@ -1,6 +1,39 @@
 #include "compose_cedr_cdr.hpp"
 #include "compose_cedr_sl.hpp"
 
+struct Op {
+  typedef std::shared_ptr<Op> Ptr;
+
+  Op (MPI_User_function* function, bool commute) {
+    MPI_Op_create(function, static_cast<int>(commute), &op_);
+  }
+
+  ~Op () { MPI_Op_free(&op_); }
+
+  const MPI_Op& get () const { return op_; }
+
+private:
+  MPI_Op op_;
+};
+
+typedef long long LongLong;
+
+int all_reduce (const cedr::mpi::Parallel& p,
+                const LongLong* sendbuf, LongLong* rcvbuf, int count,
+                const Op& op) {
+  return MPI_Allreduce(sendbuf, rcvbuf, count, MPI_LONG_LONG_INT, op.get(),
+                       p.comm());
+}
+
+static void
+lxor (void* invec, void* inoutvec, int* len, MPI_Datatype* datatype) {
+  const int n = *len;
+  const auto* s = reinterpret_cast<const LongLong*>(invec);
+  auto* d = reinterpret_cast<LongLong*>(inoutvec);
+  for (int i = 0; i < n; ++i)
+    d[i] ^= s[i];
+}
+
 namespace homme {
 namespace sl {
 
@@ -19,12 +52,14 @@ void check (CDR<MT>& cdr, Data& d, const Real* q_min_r, const Real* q_max_r,
     q_lo("q_lo", nprob, qsize), q_hi("q_hi", nprob, qsize),
     q_min_l("q_min_l", nprob, qsize), q_max_l("q_max_l", nprob, qsize),
     qd_lo("qd_lo", nprob, qsize), qd_hi("qd_hi", nprob, qsize);
+  Kokkos::View<LongLong**, Kokkos::Serial> q_xor("q_xor", nprob, qsize);
   Kokkos::deep_copy(q_lo,  1e200);
   Kokkos::deep_copy(q_hi, -1e200);
   Kokkos::deep_copy(q_min_l,  1e200);
   Kokkos::deep_copy(q_max_l, -1e200);
   Kokkos::deep_copy(qd_lo, 0);
   Kokkos::deep_copy(qd_hi, 0);
+  Kokkos::deep_copy(q_xor, 0);
 
 #ifdef COMPOSE_PORT
   const auto q_min = ko::create_mirror_view(ta.q_min);
@@ -102,10 +137,11 @@ void check (CDR<MT>& cdr, Data& d, const Real* q_min_r, const Real* q_max_r,
                                  spheremp(ie,g));
             mass_hi(iprob,q) += (idx_qext(q_max,ie,q,g,k) * dp3d_c(ie,np1,g,k) *
                                  spheremp(ie,g));
-            q_lo(iprob,q) = std::min(q_lo(iprob,q), idx_qext(q_min,ie,q,g,k));
-            q_hi(iprob,q) = std::max(q_hi(iprob,q), idx_qext(q_max,ie,q,g,k));
+            q_lo(iprob,q) = std::min(q_lo(iprob,q), q_c(ie,q,g,k));
+            q_hi(iprob,q) = std::max(q_hi(iprob,q), q_c(ie,q,g,k));
             q_min_l(iprob,q) = std::min(q_min_l(iprob,q), idx_qext(q_min,ie,q,g,k));
             q_max_l(iprob,q) = std::max(q_max_l(iprob,q), idx_qext(q_max,ie,q,g,k));
+            q_xor(iprob,q) ^= *reinterpret_cast<LongLong*>(&q_c(ie,q,g,k));
           }
         }
       }
@@ -166,6 +202,7 @@ void check (CDR<MT>& cdr, Data& d, const Real* q_min_r, const Real* q_max_r,
       q_lo_g("q_lo_g", nprob, qsize), q_hi_g("q_hi_g", nprob, qsize),
       q_min_g("q_min_g", nprob, qsize), q_max_g("q_max_g", nprob, qsize),
       qd_lo_g("qd_lo_g", nprob, qsize), qd_hi_g("qd_hi_g", nprob, qsize);
+    Kokkos::View<LongLong**, Kokkos::Serial> q_xor_g("q_xor_g", nprob, qsize);
 
     const auto& p = *cdr.p;
     const auto& c = *d.check;
@@ -183,12 +220,25 @@ void check (CDR<MT>& cdr, Data& d, const Real* q_min_r, const Real* q_max_r,
     reduce(p, c.q_hi.data(), q_hi_g.data(), N, MPI_MAX, root);
     reduce(p, c.q_min_l.data(), q_min_g.data(), N, MPI_MIN, root);
     reduce(p, c.q_max_l.data(), q_max_g.data(), N, MPI_MAX, root);
+    fprintf(stderr,"test> %lld\n", q_xor(0,0));
+#if 0
+    reduce(p,
+           reinterpret_cast<int*>(q_xor.data()),
+           reinterpret_cast<int*>(q_xor_g.data()), 2*N, MPI_LXOR, root);
+#else
+    Op op(lxor, true);
+    all_reduce(p, q_xor.data(), q_xor_g.data(), N, op);
+#endif
 
     if (cdr.p->amroot()) {
+      static int cnt = 0;
       const Real tol = 1e4*std::numeric_limits<Real>::epsilon();
       for (Int k = 0; k < nprob; ++k)
         for (Int q = 0; q < qsize; ++q) {
           const Real rd = cedr::util::reldif(mass_p_g(k,q), mass_c_g(k,q));
+          fprintf(stderr,"amb> %d %d %d %1.15e %1.15e %1.15e %1.15e %1.15e %1.15e %lld\n",
+                  cnt,k,q,mass_p_g(k,q),mass_c_g(k,q),mass_lo_g(k,q),mass_hi_g(k,q),
+                  q_lo_g(k,q),q_hi_g(k,q),q_xor_g(k,q));
           if (rd > tol)
             pr(puf(k) pu(q) pu(mass_p_g(k,q)) pu(mass_c_g(k,q)) pu(rd));
           if (mass_lo_g(k,q) <= mass_c_g(k,q) && mass_c_g(k,q) <= mass_hi_g(k,q)) {
@@ -205,6 +255,7 @@ void check (CDR<MT>& cdr, Data& d, const Real* q_min_r, const Real* q_max_r,
               pr(puf(k) pu(q) pu(q_max_g(k,q) - q_hi_g(k,q)) pu(q_max_g(k,q)));
           }
         }
+      ++cnt;
     }
   }
 }

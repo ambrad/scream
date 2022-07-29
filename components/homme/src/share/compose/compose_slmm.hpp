@@ -6,7 +6,7 @@
 
 namespace ko = Kokkos;
 
-#ifndef NDEBUG
+#if 1 //ndef NDEBUG
 # define slmm_assert(condition) do {                                    \
     if ( ! (condition)) {                                               \
       std::stringstream _ss_;                                           \
