@@ -1,38 +1,6 @@
 #include "compose_cedr_cdr.hpp"
 #include "compose_cedr_sl.hpp"
-
-struct Op {
-  typedef std::shared_ptr<Op> Ptr;
-
-  Op (MPI_User_function* function, bool commute) {
-    MPI_Op_create(function, static_cast<int>(commute), &op_);
-  }
-
-  ~Op () { MPI_Op_free(&op_); }
-
-  const MPI_Op& get () const { return op_; }
-
-private:
-  MPI_Op op_;
-};
-
-typedef long long LongLong;
-
-int all_reduce (const cedr::mpi::Parallel& p,
-                const LongLong* sendbuf, LongLong* rcvbuf, int count,
-                const Op& op) {
-  return MPI_Allreduce(sendbuf, rcvbuf, count, MPI_LONG_LONG_INT, op.get(),
-                       p.comm());
-}
-
-static void
-lxor (void* invec, void* inoutvec, int* len, MPI_Datatype* datatype) {
-  const int n = *len;
-  const auto* s = reinterpret_cast<const LongLong*>(invec);
-  auto* d = reinterpret_cast<LongLong*>(inoutvec);
-  for (int i = 0; i < n; ++i)
-    d[i] ^= s[i];
-}
+#include "/autofs/nccs-svm1_home1/ambradl/repo/SCREAM/lxor.hpp"
 
 namespace homme {
 namespace sl {
@@ -220,15 +188,9 @@ void check (CDR<MT>& cdr, Data& d, const Real* q_min_r, const Real* q_max_r,
     reduce(p, c.q_hi.data(), q_hi_g.data(), N, MPI_MAX, root);
     reduce(p, c.q_min_l.data(), q_min_g.data(), N, MPI_MIN, root);
     reduce(p, c.q_max_l.data(), q_max_g.data(), N, MPI_MAX, root);
-    fprintf(stderr,"test> %lld\n", q_xor(0,0));
-#if 0
-    reduce(p,
-           reinterpret_cast<int*>(q_xor.data()),
-           reinterpret_cast<int*>(q_xor_g.data()), 2*N, MPI_LXOR, root);
-#else
+
     Op op(lxor, true);
-    all_reduce(p, q_xor.data(), q_xor_g.data(), N, op);
-#endif
+    all_reduce(p.comm(), q_xor.data(), q_xor_g.data(), N, op);
 
     if (cdr.p->amroot()) {
       static int cnt = 0;
@@ -236,9 +198,13 @@ void check (CDR<MT>& cdr, Data& d, const Real* q_min_r, const Real* q_max_r,
       for (Int k = 0; k < nprob; ++k)
         for (Int q = 0; q < qsize; ++q) {
           const Real rd = cedr::util::reldif(mass_p_g(k,q), mass_c_g(k,q));
-          fprintf(stderr,"amb> %d %d %d %1.15e %1.15e %1.15e %1.15e %1.15e %1.15e %lld\n",
+#if 0
+          fprintf(stderr,"amb q> %d %d %d %1.15e %1.15e %1.15e %1.15e %1.15e %1.15e %lld\n",
                   cnt,k,q,mass_p_g(k,q),mass_c_g(k,q),mass_lo_g(k,q),mass_hi_g(k,q),
                   q_lo_g(k,q),q_hi_g(k,q),q_xor_g(k,q));
+#else
+          fprintf(stderr,"amb q> check %d %lld\n",q_xor_g(k,q));
+#endif
           if (rd > tol)
             pr(puf(k) pu(q) pu(mass_p_g(k,q)) pu(mass_c_g(k,q)) pu(rd));
           if (mass_lo_g(k,q) <= mass_c_g(k,q) && mass_c_g(k,q) <= mass_hi_g(k,q)) {

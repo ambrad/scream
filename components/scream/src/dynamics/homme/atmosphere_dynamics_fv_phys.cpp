@@ -19,6 +19,10 @@
 #include "ekat/ekat_pack_kokkos.hpp"
 #include "ekat/ekat_pack_utils.hpp"
 
+#include "/autofs/nccs-svm1_home1/ambradl/repo/SCREAM/lxor.hpp"
+#include "Tracers.hpp"
+#include "mpi/Connectivity.hpp"
+
 extern "C" void gfr_init_hxx();
 
 // Parse a name of the form "Physics PGN". Return -1 if not an FV physics grid
@@ -182,6 +186,42 @@ void HommeDynamics::remap_dyn_to_fv_phys (GllFvRemapTmp* t) const {
 
   gfr.run_dyn_to_fv_phys(time_idx, ps, phis, T, omega, uv, q, &dp);
   Kokkos::fence();
+
+  {
+    const auto& t = c.get<Homme::Tracers>();
+    const auto& comm = c.get<Homme::Connectivity>().get_comm();
+    const int nq = t.Q.extent_int(1);
+    LongLong vl[32] = {0}, vg[32] = {0};
+    {
+      const auto qh = Kokkos::create_mirror_view(t.Q);
+      Kokkos::deep_copy(qh, t.Q);
+      for (int i = 0; i < qh.extent_int(0); ++i)
+        for (int j = 0; j < qh.extent_int(1); ++j)
+          for (int k = 0; k < qh.extent_int(2); ++k)
+            for (int l = 0; l < qh.extent_int(3); ++l)
+              for (int m = 0; m < qh.extent_int(4); ++m)
+                vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k,l,m));
+    }
+    Op op(lxor, true);
+    all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
+    if (comm.root())
+      for (int iq = 0; iq < nq; ++iq)
+        fprintf(stderr, "amb q> d2p GLL %d %lld\n", iq, vg[iq]);
+    for (int iq = 0; iq < nq; ++iq) vl[iq] = 0;
+    {
+      const auto qh = Kokkos::create_mirror_view(q);
+      Kokkos::deep_copy(qh, q);
+      for (int i = 0; i < qh.extent_int(0); ++i)
+        for (int j = 0; j < qh.extent_int(1); ++j)
+          for (int k = 0; k < qh.extent_int(2); ++k)
+            for (int l = 0; l < qh.extent_int(3); ++l)
+              vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k,l));
+    }
+    all_reduce(comm.mpi_comm(), vl, vg, nq, op);
+    if (comm.root())
+      for (int iq = 0; iq < nq; ++iq)
+        fprintf(stderr, "amb q> d2p FV %d %lld\n", iq, vg[iq]);
+  }
 }
 
 void HommeDynamics::remap_fv_phys_to_dyn () const {
@@ -209,11 +249,69 @@ void HommeDynamics::remap_fv_phys_to_dyn () const {
   const auto q = Homme::GllFvRemap::CPhys3T(
     get_group_in("tracers", gn).m_bundle->get_view<const Real***>().data(),
     nelem, npg, nq, nlev);
+
+  {
+    const auto& comm = c.get<Homme::Connectivity>().get_comm();
+    const int nq = q.extent_int(2);
+    LongLong vl[32] = {0}, vg[32] = {0};
+    {
+      const auto qh = Kokkos::create_mirror_view(q);
+      Kokkos::deep_copy(qh, q);
+      for (int i = 0; i < qh.extent_int(0); ++i)
+        for (int j = 0; j < qh.extent_int(1); ++j)
+          for (int k = 0; k < qh.extent_int(2); ++k)
+            for (int l = 0; l < qh.extent_int(3); ++l)
+              vl[k] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k,l));
+    }
+    Op op(lxor, true);
+    all_reduce(comm.mpi_comm(), vl, vg, nq, op);
+    if (comm.root())
+      for (int iq = 0; iq < nq; ++iq)
+        fprintf(stderr, "amb q> p2d FV %d %lld\n", iq, vg[iq]);
+    for (int iq = 0; iq < nq; ++iq) vl[iq] = 0;
+    const auto& t = c.get<Homme::Tracers>();
+    {
+      const auto qh = Kokkos::create_mirror_view(t.Q);
+      Kokkos::deep_copy(qh, t.Q);
+      for (int i = 0; i < qh.extent_int(0); ++i)
+        for (int j = 0; j < qh.extent_int(1); ++j)
+          for (int k = 0; k < qh.extent_int(2); ++k)
+            for (int l = 0; l < qh.extent_int(3); ++l)
+              for (int m = 0; m < qh.extent_int(4); ++m)
+                vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k,l,m));
+    }
+    all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
+    if (comm.root())
+      for (int iq = 0; iq < nq; ++iq)
+        fprintf(stderr, "amb q> p2d GLL before %d %lld\n", iq, vg[iq]);
+  }
   
   gfr.run_fv_phys_to_dyn(time_idx, T, uv, q);
   Kokkos::fence();
   gfr.run_fv_phys_to_dyn_dss();
   Kokkos::fence();
+
+  {
+    const auto& t = c.get<Homme::Tracers>();
+    const auto& comm = c.get<Homme::Connectivity>().get_comm();
+    LongLong vl[32] = {0}, vg[32] = {0};
+    {
+      const auto qh = Kokkos::create_mirror_view(t.Q);
+      Kokkos::deep_copy(qh, t.Q);
+      const int nq = qh.extent_int(1);
+      for (int i = 0; i < qh.extent_int(0); ++i)
+        for (int j = 0; j < qh.extent_int(1); ++j)
+          for (int k = 0; k < qh.extent_int(2); ++k)
+            for (int l = 0; l < qh.extent_int(3); ++l)
+              for (int m = 0; m < qh.extent_int(4); ++m)
+                vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k,l,m));
+    }
+    Op op(lxor, true);
+    all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
+    if (comm.root())
+      for (int iq = 0; iq < nq; ++iq)
+        fprintf(stderr, "amb q> p2d GLL after %d %lld\n", iq, vg[iq]);
+  }
 }
 
 // [rrtmgp active gases] This is to address issue #1782. It supports option 1 in
