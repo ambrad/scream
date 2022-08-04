@@ -2,11 +2,29 @@
 
 #include "share/util/scream_common_physics_functions.hpp"
 
+#include "/autofs/nccs-svm1_home1/ambradl/repo/SCREAM/lxor.hpp"
+
 namespace scream {
 namespace control {
 
 void SurfaceCoupling::do_export (const int dt, const bool init_phase)
 {
+  {
+    const auto v = m_field_mgr->get_field_group("tracers").m_bundle->get_view<Real***>();
+    const auto qh = Kokkos::create_mirror_view(v);
+    Kokkos::deep_copy(qh, v);
+    const int nq = qh.extent_int(1);
+    LongLong vl[32] = {0}, vg[32] = {0};
+    for (int i = 0; i < qh.extent_int(0); ++i)
+      for (int j = 0; j < nq; ++j)
+        for (int k = 0; k < qh.extent_int(2); ++k)
+          vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k));
+    all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
+    if (comm.am_i_root())
+      for (int iq = 0; iq < nq; ++iq)
+        fprintf(stderr, "amb q> sc::export before %d %lld\n", iq, vg[iq]);
+  }
+  
   if (m_num_scream_exports==0) {
     return;
   }
@@ -121,6 +139,22 @@ void SurfaceCoupling::do_export (const int dt, const bool init_phase)
 
   // Deep copy fields from device to cpl host array
   Kokkos::deep_copy(m_cpl_exports_view_h,m_cpl_exports_view_d);
+
+  {
+    const auto v = m_field_mgr->get_field_group("tracers").m_bundle->get_view<Real***>();
+    const auto qh = Kokkos::create_mirror_view(v);
+    Kokkos::deep_copy(qh, v);
+    const int nq = qh.extent_int(1);
+    LongLong vl[32] = {0}, vg[32] = {0};
+    for (int i = 0; i < qh.extent_int(0); ++i)
+      for (int j = 0; j < nq; ++j)
+        for (int k = 0; k < qh.extent_int(2); ++k)
+          vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k));
+    all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
+    if (comm.am_i_root())
+      for (int iq = 0; iq < nq; ++iq)
+        fprintf(stderr, "amb q> sc::export after %d %lld\n", iq, vg[iq]);
+  }
 }
 
 } // namespace control

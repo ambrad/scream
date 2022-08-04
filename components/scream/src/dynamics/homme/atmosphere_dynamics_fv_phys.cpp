@@ -202,7 +202,6 @@ void HommeDynamics::remap_dyn_to_fv_phys (GllFvRemapTmp* t) const {
               for (int m = 0; m < qh.extent_int(4); ++m)
                 vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k,l,m));
     }
-    Op op(lxor, true);
     all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
     if (comm.root())
       for (int iq = 0; iq < nq; ++iq)
@@ -215,9 +214,9 @@ void HommeDynamics::remap_dyn_to_fv_phys (GllFvRemapTmp* t) const {
         for (int j = 0; j < qh.extent_int(1); ++j)
           for (int k = 0; k < qh.extent_int(2); ++k)
             for (int l = 0; l < qh.extent_int(3); ++l)
-              vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k,l));
+              vl[k] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k,l));
     }
-    all_reduce(comm.mpi_comm(), vl, vg, nq, op);
+    all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
     if (comm.root())
       for (int iq = 0; iq < nq; ++iq)
         fprintf(stderr, "amb q> d2p FV %d %lld\n", iq, vg[iq]);
@@ -263,16 +262,15 @@ void HommeDynamics::remap_fv_phys_to_dyn () const {
             for (int l = 0; l < qh.extent_int(3); ++l)
               vl[k] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k,l));
     }
-    Op op(lxor, true);
-    all_reduce(comm.mpi_comm(), vl, vg, nq, op);
+    all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
     if (comm.root())
       for (int iq = 0; iq < nq; ++iq)
         fprintf(stderr, "amb q> p2d FV %d %lld\n", iq, vg[iq]);
     for (int iq = 0; iq < nq; ++iq) vl[iq] = 0;
     const auto& t = c.get<Homme::Tracers>();
     {
-      const auto qh = Kokkos::create_mirror_view(t.Q);
-      Kokkos::deep_copy(qh, t.Q);
+      const auto qh = Kokkos::create_mirror_view(t.fq);
+      Kokkos::deep_copy(qh, t.fq);
       for (int i = 0; i < qh.extent_int(0); ++i)
         for (int j = 0; j < qh.extent_int(1); ++j)
           for (int k = 0; k < qh.extent_int(2); ++k)
@@ -296,8 +294,8 @@ void HommeDynamics::remap_fv_phys_to_dyn () const {
     const auto& comm = c.get<Homme::Connectivity>().get_comm();
     LongLong vl[32] = {0}, vg[32] = {0};
     {
-      const auto qh = Kokkos::create_mirror_view(t.Q);
-      Kokkos::deep_copy(qh, t.Q);
+      const auto qh = Kokkos::create_mirror_view(t.fq);
+      Kokkos::deep_copy(qh, t.fq);
       const int nq = qh.extent_int(1);
       for (int i = 0; i < qh.extent_int(0); ++i)
         for (int j = 0; j < qh.extent_int(1); ++j)
@@ -306,7 +304,6 @@ void HommeDynamics::remap_fv_phys_to_dyn () const {
               for (int m = 0; m < qh.extent_int(4); ++m)
                 vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k,l,m));
     }
-    Op op(lxor, true);
     all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
     if (comm.root())
       for (int iq = 0; iq < nq; ++iq)

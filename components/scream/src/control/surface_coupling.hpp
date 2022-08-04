@@ -35,7 +35,8 @@ public:
   using cpl_data_ptr_type = double*;
 
   // The input grid is the one where import/export happens
-  explicit SurfaceCoupling (const field_mgr_ptr& field_mgr);
+  explicit SurfaceCoupling (const field_mgr_ptr& field_mgr, const ekat::Comm& comm);
+  const ekat::Comm& comm;
 
   // This allocates some service views. Since not all imported
   // data is used by SCREAM, we distinguish between cpl

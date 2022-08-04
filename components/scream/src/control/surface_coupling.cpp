@@ -2,13 +2,16 @@
 
 #include "share/field/field_utils.hpp"
 
+#include "/autofs/nccs-svm1_home1/ambradl/repo/SCREAM/lxor.hpp"
+
 namespace scream {
 namespace control {
 
 SurfaceCoupling::
-SurfaceCoupling (const field_mgr_ptr& field_mgr)
+SurfaceCoupling (const field_mgr_ptr& field_mgr, const ekat::Comm& comm_)
  : m_field_mgr (field_mgr)
- , m_state (RepoState::Clean)
+ , m_state (RepoState::Clean),
+   comm(comm_)
 {
   auto grid = m_field_mgr->get_grid();
 
@@ -277,6 +280,21 @@ registration_ends (cpl_data_ptr_type cpl_imports_ptr,
 
 void SurfaceCoupling::do_import ()
 {
+  {
+    const auto v = m_field_mgr->get_field_group("tracers").m_bundle->get_view<Real***>();
+    const auto qh = Kokkos::create_mirror_view(v);
+    Kokkos::deep_copy(qh, v);
+    const int nq = qh.extent_int(1);
+    LongLong vl[32] = {0}, vg[32] = {0};
+    for (int i = 0; i < qh.extent_int(0); ++i)
+      for (int j = 0; j < nq; ++j)
+        for (int k = 0; k < qh.extent_int(2); ++k)
+          vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k));
+    all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
+    if (comm.am_i_root())
+      for (int iq = 0; iq < nq; ++iq)
+        fprintf(stderr, "amb q> sc::import before %d %lld\n", iq, vg[iq]);
+  }
   if (m_num_scream_imports==0) {
     return;
   }
@@ -303,6 +321,22 @@ void SurfaceCoupling::do_import ()
     auto offset = icol*info.col_stride + info.col_offset;
     info.data[offset] = cpl_imports_view_d(icol,info.cpl_idx)*cpl_scream_sign_change(ifield);
   });
+
+  {
+    const auto v = m_field_mgr->get_field_group("tracers").m_bundle->get_view<Real***>();
+    const auto qh = Kokkos::create_mirror_view(v);
+    Kokkos::deep_copy(qh, v);
+    const int nq = qh.extent_int(1);
+    LongLong vl[32] = {0}, vg[32] = {0};
+    for (int i = 0; i < qh.extent_int(0); ++i)
+      for (int j = 0; j < nq; ++j)
+        for (int k = 0; k < qh.extent_int(2); ++k)
+          vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k));
+    all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
+    if (comm.am_i_root())
+      for (int iq = 0; iq < nq; ++iq)
+        fprintf(stderr, "amb q> sc::import after %d %lld\n", iq, vg[iq]);
+  }
 }
 
 void SurfaceCoupling::
