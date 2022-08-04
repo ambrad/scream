@@ -88,6 +88,7 @@ void ComposeTransportImpl::set_dp_tol () {
   Real min_dp0 = dp0[0];
   for (int i = 1; i < num_phys_lev; ++i) min_dp0 = std::min(min_dp0, dp0[i]);
   m_data.dp_tol = 10*std::numeric_limits<Real>::epsilon()*min_dp0;
+  fprintf(stderr,"amb> dp_tol %1.3e\n", m_data.dp_tol);
 }
 
 KOKKOS_FUNCTION static void
@@ -125,6 +126,8 @@ reconstruct_and_limit_dp (const KernelVariables& kv, const CSNlev& dprefp, const
       } else {
         sums.v[1] += dprecon(i,j,k) - dp_tol;
       }
+      if (dprecon(i,j,k) < dp_tol or dp_tol < 1e-16)
+        printf("amb> rald 1 %1.2e %1.2e\n",dprecon(i,j,k),dp_tol);
     };
     Kokkos::Real2 sums;
     Dispatch<>::parallel_reduce(kv.team, tvr, g1, sums);
@@ -136,6 +139,8 @@ reconstruct_and_limit_dp (const KernelVariables& kv, const CSNlev& dprefp, const
     const auto g2 = [&] (const int k) {
       const Real w = dprecon(i,j,k) - dp_tol;
       dprecon(i,j,k) += nmass*(w/wsum);
+      if (dprecon(i,j,k) < dp_tol or dp_tol < 1e-16)
+        printf("amb> rald 2 %1.2e %1.2e\n",dprecon(i,j,k),dp_tol);
     };
     Kokkos::parallel_for(tvr, g2);
   };

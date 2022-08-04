@@ -11,6 +11,8 @@
 
 namespace Homme {
 
+extern bool amb_dbg;
+
 class FunctorsBuffersManager;
 
 namespace Remap { class Remapper; }

@@ -26,7 +26,10 @@
 
 #include "profiling.hpp"
 
+#include "VerticalRemapManager.hpp"
+
 namespace Homme {
+
 namespace Remap {
 
 // The RemapStateAndThicknessProvider provides states and src/tgt thicknesses
@@ -404,7 +407,7 @@ struct RemapFunctor : public Remapper {
     kv.ie /= num_to_remap();
     assert(kv.ie < m_state.num_elems());
 
-    this->m_remap.compute_remap_phase(kv, get_remap_val(kv, var));
+    this->m_remap.compute_remap_phase(kv, get_remap_val(kv, var), false);
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -478,6 +481,7 @@ struct RemapFunctor : public Remapper {
     const ExecViewUnmanaged<Scalar**[NP][NP][NUM_LEV]> v,
     const int num_remap) override
   {
+    bool dbg = amb_dbg;
     using Kokkos::ALL;
     const int ne = dp_src.extent_int(0), nv = num_remap;
     assert(nv <= m_data.capacity);
@@ -492,7 +496,7 @@ struct RemapFunctor : public Remapper {
     const auto tu_ne_ntr = m_tu_ne_ntr;
     const auto r = KOKKOS_LAMBDA (const TeamMember& team) {
       KernelVariables kv(team, nv, tu_ne_ntr);
-      remap.compute_remap_phase(kv, Kokkos::subview(v, kv.ie, kv.iq, ALL(), ALL(), ALL()));
+      remap.compute_remap_phase(kv, Kokkos::subview(v, kv.ie, kv.iq, ALL(), ALL(), ALL()), dbg);
     };
     Kokkos::fence();
     Kokkos::parallel_for(get_default_team_policy<ExecSpace>(ne*nv), r);
@@ -504,6 +508,7 @@ struct RemapFunctor : public Remapper {
     const ExecViewUnmanaged<Scalar***[NP][NP][NUM_LEV]> v, const int n_v,
     const int num_remap) override
   {
+    bool dbg = amb_dbg;
     using Kokkos::ALL;
     const int ne = dp_src.extent_int(0), nv = num_remap;
     assert(nv <= m_data.capacity);
@@ -518,7 +523,7 @@ struct RemapFunctor : public Remapper {
     const auto tu_ne_ntr = m_tu_ne_ntr;
     const auto r = KOKKOS_LAMBDA (const TeamMember& team) {
       KernelVariables kv(team, nv, tu_ne_ntr);
-      remap.compute_remap_phase(kv, Kokkos::subview(v, kv.ie, n_v, kv.iq, ALL(), ALL(), ALL()));
+      remap.compute_remap_phase(kv, Kokkos::subview(v, kv.ie, n_v, kv.iq, ALL(), ALL(), ALL()), dbg);
     };
     Kokkos::fence();
     Kokkos::parallel_for(get_default_team_policy<ExecSpace>(ne*nv), r);

@@ -198,13 +198,9 @@ void check (CDR<MT>& cdr, Data& d, const Real* q_min_r, const Real* q_max_r,
       for (Int k = 0; k < nprob; ++k)
         for (Int q = 0; q < qsize; ++q) {
           const Real rd = cedr::util::reldif(mass_p_g(k,q), mass_c_g(k,q));
-#if 0
-          fprintf(stderr,"amb q> %d %d %d %1.15e %1.15e %1.15e %1.15e %1.15e %1.15e %lld\n",
+          fprintf(stderr,"amb> sl check %d %d %d %1.15e %1.15e %1.15e %1.15e %1.15e %1.15e %lld\n",
                   cnt,k,q,mass_p_g(k,q),mass_c_g(k,q),mass_lo_g(k,q),mass_hi_g(k,q),
                   q_lo_g(k,q),q_hi_g(k,q),q_xor_g(k,q));
-#else
-          fprintf(stderr,"amb q> check %d %lld\n",q_xor_g(k,q));
-#endif
           if (rd > tol)
             pr(puf(k) pu(q) pu(mass_p_g(k,q)) pu(mass_c_g(k,q)) pu(rd));
           if (mass_lo_g(k,q) <= mass_c_g(k,q) && mass_c_g(k,q) <= mass_hi_g(k,q)) {

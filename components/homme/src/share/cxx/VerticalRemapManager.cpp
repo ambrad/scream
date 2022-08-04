@@ -16,6 +16,8 @@
 
 namespace Homme {
 
+bool amb_dbg = false;
+
 struct VerticalRemapManager::Impl {
   Impl(const SimulationParams &params, const Elements &e, const Tracers &t,
        const HybridVCoord &h, const bool remap_tracers)

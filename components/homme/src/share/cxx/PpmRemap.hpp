@@ -199,7 +199,8 @@ struct PpmVertRemap : public VertRemapAlg {
 
   KOKKOS_INLINE_FUNCTION
   void compute_remap_phase(KernelVariables &kv,
-                           ExecViewUnmanaged<Scalar[NP][NP][NUM_LEV]> remap_var)
+                           ExecViewUnmanaged<Scalar[NP][NP][NUM_LEV]> remap_var,
+                           bool dbg)
       const {
     // From here, we loop over tracers for only those portions which depend on
     // tracer data, which includes PPM limiting and mass accumulation
@@ -220,21 +221,43 @@ struct PpmVertRemap : public VertRemapAlg {
 
       boundaries::fill_cell_means_gs(kv, Homme::subview(m_dpo, kv.ie, igp, jgp),
                                      Homme::subview(m_ao, kv.team_idx, igp, jgp));
-
-      Dispatch<ExecSpace>::parallel_scan(
-          kv.team, NUM_PHYSICAL_LEV,
-          [=](const int &k, Real &accumulator, const bool last) {
-            // Accumulate the old mass up to old grid cell interface locations
-            // to simplify integration during remapping. Also, divide out the
-            // grid spacing so we're working with actual tracer values and can
-            // conserve mass.
-            const int ilevel = k / VECTOR_SIZE;
+#if 1
+      kv.team.team_barrier();
+      Kokkos::parallel_scan(
+          Kokkos::ThreadVectorRange(kv.team, NUM_PHYSICAL_LEV),
+          [&](const int &k, Real &accumulator, const bool last) {
+            const int ilevel  = k / VECTOR_SIZE;
             const int ivector = k % VECTOR_SIZE;
             accumulator += remap_var(igp, jgp, ilevel)[ivector];
             if (last) {
               m_mass_o(kv.team_idx, igp, jgp, k + 1) = accumulator;
             }
       });
+      kv.team.team_barrier();
+      if (dbg) Kokkos::single(Kokkos::PerThread(kv.team), [&] ()
+      {
+        for (int k=1; k<NUM_PHYSICAL_LEV; ++k) {
+          if (m_mass_o(kv.team_idx,igp,jgp,k+1) - m_mass_o(kv.team_idx,igp,jgp,k) < 0)
+            printf("amb> vr scan %d %1.2e %1.2e %1.2e\n", k,
+                   m_mass_o(kv.team_idx,igp,jgp,k),
+                   m_mass_o(kv.team_idx,igp,jgp,k+1)-m_mass_o(kv.team_idx,igp,jgp,k),
+                   remap_var(igp, jgp, k / VECTOR_SIZE)[k % VECTOR_SIZE]);
+        }
+      });
+      kv.team.team_barrier();
+#else
+      Kokkos::single(Kokkos::PerThread(kv.team), [&] ()
+      {
+        Real a = 0;
+        for (int k=0; k<NUM_PHYSICAL_LEV; ++k) {
+          const int ilevel = k / VECTOR_SIZE;
+          const int ivector = k % VECTOR_SIZE;
+          a += remap_var(igp, jgp, ilevel)[ivector];
+          m_mass_o(kv.team_idx,igp,jgp,k+1) = a;
+        }
+      });
+      kv.team.team_barrier();
+#endif
 
       // Computes a monotonic and conservative PPM reconstruction
       compute_ppm(kv,
@@ -250,7 +273,8 @@ struct PpmVertRemap : public VertRemapAlg {
                     Homme::subview(m_parabola_coeffs, kv.team_idx, igp, jgp),
                     Homme::subview(m_mass_o, kv.team_idx, igp, jgp),
                     Homme::subview(m_dpo, kv.ie, igp, jgp),
-                    Homme::subview(remap_var, igp, jgp));
+                    Homme::subview(remap_var, igp, jgp),
+                    dbg);
     }); // End team thread range
     kv.team_barrier();
   }
@@ -279,7 +303,8 @@ struct PpmVertRemap : public VertRemapAlg {
       ExecViewUnmanaged<const Real[3][NUM_PHYSICAL_LEV]> parabola_coeffs,
       ExecViewUnmanaged<Real[_ppm_consts::MASS_O_PHYSICAL_LEV]> mass,
       ExecViewUnmanaged<const Real[_ppm_consts::DPO_PHYSICAL_LEV]> prev_dp,
-      ExecViewUnmanaged<Scalar[NUM_LEV]> remap_var) const {
+                ExecViewUnmanaged<Scalar[NUM_LEV]> remap_var,
+                bool dbg) const {
     // Compute tracer values on the new grid by integrating from the old cell
     // bottom to the new cell interface to form a new grid mass accumulation.
     // Store the mass in the integral bounds for that level
@@ -315,20 +340,21 @@ struct PpmVertRemap : public VertRemapAlg {
       ExecViewUnmanaged<const Real[3][NUM_PHYSICAL_LEV]> parabola_coeffs,
       ExecViewUnmanaged<Real[_ppm_consts::MASS_O_PHYSICAL_LEV]> prev_mass,
       ExecViewUnmanaged<const Real[_ppm_consts::DPO_PHYSICAL_LEV]> prev_dp,
-      ExecViewUnmanaged<Scalar[NUM_LEV]> remap_var) const {
+                ExecViewUnmanaged<Scalar[NUM_LEV]> remap_var,
+                bool dbg) const {
     // This duplicates work, but the parallel gain on CUDA is >> 2
     assert(VECTOR_SIZE==1);
+#if 0
     Kokkos::parallel_for(Kokkos::ThreadVectorRange(kv.team, NUM_PHYSICAL_LEV),
                          [&](const int k) {
-      const Real mass_1 =
-          (k > 0)
-              ? compute_mass(
-                    parabola_coeffs(2, k_id(k - 1)),
-                    parabola_coeffs(1, k_id(k - 1)),
-                    parabola_coeffs(0, k_id(k - 1)), prev_mass(k_id(k - 1)),
-                    prev_dp(k_id(k - 1) + _ppm_consts::INITIAL_PADDING),
-                    integral_bounds(k - 1))
-              : 0.0;
+      Real mass_1 = 0;
+      if (k > 0)
+        mass_1 = compute_mass(
+          parabola_coeffs(2, k_id(k - 1)),
+          parabola_coeffs(1, k_id(k - 1)),
+          parabola_coeffs(0, k_id(k - 1)), prev_mass(k_id(k - 1)),
+          prev_dp(k_id(k - 1) + _ppm_consts::INITIAL_PADDING),
+          integral_bounds(k - 1));
 
       const Real x2_cur_lev = integral_bounds(k);
 
@@ -342,6 +368,45 @@ struct PpmVertRemap : public VertRemapAlg {
 
       remap_var(k)[0] = mass_2 - mass_1;
     }); // k loop
+#else
+    Kokkos::single(Kokkos::PerThread(kv.team), [&] ()
+    {
+      Real mass1 = 0;
+      Real mass2;
+      ExecViewUnmanaged<Real[NUM_PHYSICAL_LEV]> rvar(reinterpret_cast<Real*>(remap_var.data()));
+      for (int k=0; k<NUM_PHYSICAL_LEV; ++k) {
+        const int kk_cur_lev = k_id(k);
+        assert(kk_cur_lev < parabola_coeffs.extent_int(1));
+
+        const Real x2_cur_lev = integral_bounds(k);
+        // Repurpose the mass buffer to store the new mass.
+        // WARNING: This may not be thread safe in future architectures which
+        //          use this level of parallelism!!!
+        mass2 = compute_mass(
+          parabola_coeffs(2, kk_cur_lev), parabola_coeffs(1, kk_cur_lev),
+          parabola_coeffs(0, kk_cur_lev), prev_mass(kk_cur_lev),
+          prev_dp(kk_cur_lev + _ppm_consts::INITIAL_PADDING), x2_cur_lev);
+        rvar(k) = mass2 - mass1;
+        const auto mass_1 = mass1;
+        mass1 = mass2;
+        if (dbg and rvar(k) < 0) {
+          const auto pm = k > 0 ? prev_mass(k_id(k - 1)) : 0.0;
+          const auto i = integrate_parabola(
+            parabola_coeffs(2, kk_cur_lev), parabola_coeffs(1, kk_cur_lev), parabola_coeffs(0, kk_cur_lev),
+            -0.5, x2_cur_lev);
+          bool same = i == 0 && mass2 == prev_mass(kk_cur_lev);
+          printf("amb> vr mass<0 %d, pm %1.2e %1.2e %1.2e, mass_1,2 %1.2e %1.2e %1.2e, "
+                 "prev_dp %1.2e ccoef %1.2e int %1.2e %d\n",
+                 k,
+                 pm, prev_mass(kk_cur_lev), prev_mass(kk_cur_lev) - pm,
+                 mass_1, mass2, remap_var(k)[0],
+                 prev_dp(kk_cur_lev + _ppm_consts::INITIAL_PADDING),
+                 parabola_coeffs(0, kk_cur_lev), i, int(same));
+        }
+      }
+    });
+    kv.team.team_barrier();
+#endif
   }
 
   KOKKOS_INLINE_FUNCTION
