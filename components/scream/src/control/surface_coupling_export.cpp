@@ -2,7 +2,7 @@
 
 #include "share/util/scream_common_physics_functions.hpp"
 
-#include "/autofs/nccs-svm1_home1/ambradl/repo/SCREAM/lxor.hpp"
+#include "../../../../lxor.hpp"
 
 namespace scream {
 namespace control {

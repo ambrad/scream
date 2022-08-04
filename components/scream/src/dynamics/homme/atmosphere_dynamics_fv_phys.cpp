@@ -19,7 +19,7 @@
 #include "ekat/ekat_pack_kokkos.hpp"
 #include "ekat/ekat_pack_utils.hpp"
 
-#include "/autofs/nccs-svm1_home1/ambradl/repo/SCREAM/lxor.hpp"
+#include "../../../../../lxor.hpp"
 #include "Tracers.hpp"
 #include "mpi/Connectivity.hpp"
 
