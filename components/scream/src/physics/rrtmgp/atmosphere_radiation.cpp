@@ -1,12 +1,8 @@
 #include "physics/rrtmgp/scream_rrtmgp_interface.hpp"
 #include "physics/rrtmgp/atmosphere_radiation.hpp"
 #include "physics/rrtmgp/rrtmgp_utils.hpp"
-<<<<<<< HEAD
 #include "physics/rrtmgp/shr_orb_mod_c2f.hpp"
-=======
-#include "physics/rrtmgp/share/shr_orb_mod_c2f.hpp"
 #include "physics/share/scream_trcmix.hpp"
->>>>>>> Progress calling trcmix from radiation
 #include "share/property_checks/field_within_interval_check.hpp"
 #include "share/util/scream_common_physics_functions.hpp"
 #include "share/util/scream_column_ops.hpp"
@@ -324,6 +320,8 @@ void RRTMGPRadiation::initialize_impl(const RunType /* run_type */) {
         Kokkos::deep_copy(gas_view, m_params.get<Real>("n2vmr"));
       } else if (gas_name == "co") {
         Kokkos::deep_copy(gas_view, m_params.get<Real>("covmr"));
+      } else if (gas_name == "o3") {
+        // ?
       } else {
         scream::physics::trcmix(
           gas_name, m_lat, pmid, gas_view,
@@ -779,7 +777,6 @@ void RRTMGPRadiation::run_impl (const int dt) {
       sw_bnd_flux_dif(icol,ilev,ibnd) = sw_bnd_flux_dn(icol,ilev,ibnd) - sw_bnd_flux_dir(icol,ilev,ibnd);
     });
 
-<<<<<<< HEAD
     // Compute surface fluxes
     rrtmgp::compute_broadband_surface_fluxes(
         ncol, kbot, m_nswbands,
@@ -787,15 +784,6 @@ void RRTMGPRadiation::run_impl (const int dt) {
         sfc_flux_dir_vis, sfc_flux_dir_nir, 
         sfc_flux_dif_vis, sfc_flux_dif_nir
     );
-=======
-  // Compute surface fluxes
-  rrtmgp::compute_broadband_surface_fluxes(
-      m_ncol, kbot, m_nswbands,
-      sw_bnd_flux_dir, sw_bnd_flux_dif,
-      sfc_flux_dir_vis, sfc_flux_dir_nir,
-      sfc_flux_dif_vis, sfc_flux_dif_nir
-  );
->>>>>>> Progress calling trcmix from radiation
 
     // Copy output data back to FieldManager
     if (update_rad) {
@@ -836,22 +824,7 @@ void RRTMGPRadiation::run_impl (const int dt) {
         });
       });
     }
-<<<<<<< HEAD
   }  
-=======
-  }
-  // Temperature is always updated
-  {
-    const auto policy = ekat::ExeSpaceUtils<ExeSpace>::get_default_team_policy(m_ncol, m_nlay);
-    Kokkos::parallel_for(policy, KOKKOS_LAMBDA(const MemberType& team) {
-      const int i = team.league_rank();
-      Kokkos::parallel_for(Kokkos::TeamThreadRange(team, nlay), [&] (const int& k) {
-        d_tmid(i,k) = t_lay(i+1,k+1);
-      });
-    });
-  }
-
->>>>>>> Progress calling trcmix from radiation
 }
 // =========================================================================================
 
