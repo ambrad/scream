@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "../../../../../lxor.hpp"
+
 namespace scream
 {
 
@@ -47,12 +49,38 @@ void AtmosphereProcess::initialize (const TimeStamp& t0, const RunType run_type)
 }
 
 void AtmosphereProcess::run (const int dt) {
+  const auto f = [&] (const std::string& label) {
+    try {
+      const auto& comm = get_comm();
+      const auto v = get_group_out("tracers").m_bundle->get_view<Real***>();
+      const auto qh = Kokkos::create_mirror_view(v);
+      Kokkos::deep_copy(qh, v);
+      const int nq = qh.extent_int(1);
+      LongLong vl[32] = {0}, vg[32] = {0};
+      Real q_min[32];
+      for (int j = 0; j < nq; ++j) q_min[j] = 1e30;
+      for (int i = 0; i < qh.extent_int(0); ++i)
+        for (int j = 0; j < nq; ++j)
+          for (int k = 0; k < qh.extent_int(2); ++k) {
+            vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k));
+            q_min[j] = std::min(q_min[j], qh(i,j,k));
+          }
+      all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
+      if (comm.am_i_root())
+        for (int iq = 0; iq < nq; ++iq)
+          fprintf(stdout, "amb q> AP::%s %s %d %lld %1.2e\n",
+                  name().c_str(), label.c_str(), iq, vg[iq], q_min[iq]);
+    } catch (...) {}
+  };
+
+  f("run0");
   start_timer (m_timer_prefix + this->name() + "::run");
   if (m_params.get("Enable Precondition Checks", true)) {
     // Run 'pre-condition' property checks stored in this AP
     run_precondition_checks();
   }
 
+  f("run1");
   EKAT_REQUIRE_MSG ( (dt % m_num_subcycles)==0,
       "Error! The number of subcycle iterations does not exactly divide the time step.\n"
       "  - Atm proc name: " + this->name() + "\n"
@@ -63,12 +91,15 @@ void AtmosphereProcess::run (const int dt) {
   auto dt_sub = dt / m_num_subcycles;
   for (m_subcycle_iter=0; m_subcycle_iter<m_num_subcycles; ++m_subcycle_iter) {
     run_impl(dt_sub);
+    f("run2");
   }
 
   if (m_params.get("Enable Postcondition Checks", true)) {
     // Run 'post-condition' property checks stored in this AP
     run_postcondition_checks();
   }
+
+  f("run3");
 
   m_time_stamp += dt;
   if (m_update_time_stamps) {
