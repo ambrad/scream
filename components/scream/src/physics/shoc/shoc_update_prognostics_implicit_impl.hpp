@@ -91,6 +91,7 @@ void Functions<S,D>::update_prognostics_implicit(
   linear_interp(team,zt_grid,zi_grid,tkh,tkh_zi,nlev,nlevi,0);
   linear_interp(team,zt_grid,zi_grid,tk,tk_zi,nlev,nlevi,0);
   linear_interp(team,zt_grid,zi_grid,rho_zt,rho_zi,nlev,nlevi,0);
+  team.team_barrier();
 
   // Define the tmpi variable, which is really dt*(g*rho)**2/dp
   // at interfaces. Substitue dp = g*rho*dz in the above equation

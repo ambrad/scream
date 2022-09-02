@@ -44,8 +44,135 @@
 #include "ekat/ekat_pack_utils.hpp"
 #include "ekat/ekat_workspace.hpp"
 
+#include "mpi/Comm.hpp"
+#include "../../../../../lxor.hpp"
+
 namespace scream
 {
+
+#define GLOBAL
+
+static LongLong reduce (LongLong v) {
+  using namespace Homme;
+#ifdef GLOBAL
+  auto& c = Context::singleton();
+  LongLong g;
+  all_reduce(c.get<Comm>().mpi_comm(), &v, &g, 1, Op(lxor, true));
+  return g;
+#else
+  return v;
+#endif
+}
+
+void chk (const std::string& label) {
+  return;
+  using namespace Homme;
+  Kokkos::fence();
+  auto& c = Context::singleton();
+  auto& tl = c.get<TimeLevel>();
+  const int t = tl.n0;
+  SimulationParams& params = c.get<SimulationParams>();
+  Tracers& tracers = c.get<Tracers>();
+  ElementsState& state = c.get<Elements>().m_state;
+  const auto& q_d = tracers.Q;
+  const auto& fq_d = tracers.fq;
+  const auto& qdp_d = tracers.qdp;
+  const auto& vtheta_dp_d = state.m_vtheta_dp;
+  const auto& dp3d_d = state.m_dp3d;
+  const auto& ps_d = state.m_ps_v;
+  const auto& phis_d = c.get<Elements>().m_geometry.m_phis;
+  const int rank = c.get<Comm>().rank();
+  const bool pr =
+#ifdef GLOBAL
+    rank == 0
+#else
+    true
+#endif
+    ;
+  if (pr) printf("amb q> nstep %d n0 %d n0_qdp %d\n", tl.nstep, tl.n0, tl.n0_qdp);
+  {
+    LongLong v = 0;
+    const auto ps = Kokkos::create_mirror_view(ps_d);
+    Kokkos::deep_copy(ps, ps_d);
+    for (int i = 0; i < ps.extent_int(0); ++i)
+      for (int j = 0; j < 4; ++j)
+        for (int k = 0; k < 4; ++k)
+          v ^= *reinterpret_cast<const LongLong*>(&ps(i,t,j,k));
+    v = reduce(v);
+    if (pr) printf("amb q> dy %s ps %d 0 %lld\n", label.c_str(), rank, v);
+  }
+  {
+    LongLong v = 0;
+    const auto phis = Kokkos::create_mirror_view(phis_d);
+    Kokkos::deep_copy(phis, phis_d);
+    for (int i = 0; i < phis.extent_int(0); ++i)
+      for (int j = 0; j < 4; ++j)
+        for (int k = 0; k < 4; ++k)
+          v ^= *reinterpret_cast<const LongLong*>(&phis(i,j,k));
+    v = reduce(v);
+    if (pr) printf("amb q> dy %s phis %d 0 %lld\n", label.c_str(), rank, v);
+  }
+  {
+    LongLong v = 0;
+    const auto vth = Kokkos::create_mirror_view(vtheta_dp_d);
+    Kokkos::deep_copy(vth, vtheta_dp_d);
+    for (int i = 0; i < vth.extent_int(0); ++i)
+      for (int j = 0; j < 4; ++j)
+        for (int k = 0; k < 4; ++k)
+          for (int l = 0; l < NUM_LEV; ++l)
+            v ^= *reinterpret_cast<const LongLong*>(&vth(i,t,j,k,l));
+    v = reduce(v);
+    if (pr) printf("amb q> dy %s vth %d 0 %lld\n", label.c_str(), rank, v);
+  }
+  {
+    LongLong v = 0;
+    const auto dp = Kokkos::create_mirror_view(dp3d_d);
+    Kokkos::deep_copy(dp, dp3d_d);
+    for (int i = 0; i < dp.extent_int(0); ++i)
+      for (int j = 0; j < 4; ++j)
+        for (int k = 0; k < 4; ++k)
+          for (int l = 0; l < NUM_LEV; ++l)
+            v ^= *reinterpret_cast<const LongLong*>(&dp(i,t,j,k,l));
+    v = reduce(v);
+    if (pr) printf("amb q> dy %s dp3d %d 0 %lld\n", label.c_str(), rank, v);
+  }
+  {
+    LongLong v = 0;
+    const auto q = Kokkos::create_mirror_view(fq_d);
+    Kokkos::deep_copy(q, fq_d);
+    for (int i = 0; i < q.extent_int(0); ++i)
+      for (int j = 0; j < 4; ++j)
+        for (int k = 0; k < 4; ++k)
+          for (int l = 0; l < NUM_LEV; ++l)
+            v ^= *reinterpret_cast<const LongLong*>(&q(i,0,j,k,l));
+    v = reduce(v);
+    if (pr) printf("amb q> dy %s fqv %d 0 %lld\n", label.c_str(), rank, v);
+  }
+  {
+    LongLong v = 0;
+    const auto q = Kokkos::create_mirror_view(q_d);
+    Kokkos::deep_copy(q, q_d);
+    for (int i = 0; i < q.extent_int(0); ++i)
+      for (int j = 0; j < 4; ++j)
+        for (int k = 0; k < 4; ++k)
+          for (int l = 0; l < NUM_LEV; ++l)
+            v ^= *reinterpret_cast<const LongLong*>(&q(i,0,j,k,l));
+    v = reduce(v);
+    if (pr) printf("amb q> dy %s qv %d 0 %lld\n", label.c_str(), rank, v);
+  }
+  {
+    LongLong v = 0;
+    const auto q = Kokkos::create_mirror_view(qdp_d);
+    Kokkos::deep_copy(q, qdp_d);
+    for (int i = 0; i < q.extent_int(0); ++i)
+      for (int j = 0; j < 4; ++j)
+        for (int k = 0; k < 4; ++k)
+          for (int l = 0; l < NUM_LEV; ++l)
+            v ^= *reinterpret_cast<const LongLong*>(&q(i,tl.np1_qdp,0,j,k,l));
+    v = reduce(v);
+    if (pr) printf("amb q> dy %s qdp %d 0 %lld\n", label.c_str(), rank, v);
+  }
+}
 
 HommeDynamics::HommeDynamics (const ekat::Comm& comm, const ekat::ParameterList& params)
   : AtmosphereProcess(comm, params), m_phys_grid_pgN(-1)
@@ -412,6 +539,8 @@ void HommeDynamics::initialize_impl (const RunType run_type)
     restart_homme_state ();
   }
 
+  chk("HD::initialize1");
+
   // Complete homme model initialization
   prim_init_model_f90 ();
 
@@ -447,6 +576,7 @@ void HommeDynamics::initialize_impl (const RunType run_type)
 
   // Initialize Rayleigh friction variables
   rayleigh_friction_init();
+  chk("HD::initialize2");
 }
 
 void HommeDynamics::run_impl (const int dt)
@@ -465,11 +595,16 @@ void HommeDynamics::run_impl (const int dt)
     params.nsplit = nsplit;
 
     Kokkos::fence();
+    chk("HD::run_impl1");
     homme_pre_process (dt);
+    chk("HD::run_impl2");
 
     for (int subiter=0; subiter<nsplit; ++subiter) {
       Kokkos::fence();
       prim_run_f90(/* nsplit_iteration = */ subiter+1);
+      std::stringstream ss;
+      ss << "HD::run_impl3." << subiter;
+      chk(ss.str());
     }
 
     // Update nstep in the restart extra data, so it can be written to restart if needed.
@@ -480,6 +615,7 @@ void HommeDynamics::run_impl (const int dt)
     // Post process Homme's output, to produce what the rest of Atm expects
     Kokkos::fence();
     homme_post_process (dt);
+    chk("HD::run_impl4");
   } catch (std::exception& e) {
     EKAT_ERROR_MSG(e.what());
   } catch (...) {
@@ -529,6 +665,8 @@ void HommeDynamics::homme_pre_process (const int dt) {
 
   const auto& pgn = m_phys_grid->name();
 
+  chk("HD::pre1");
+
   // At the beginning of the step, FT and FM store T_prev and V_prev,
   // the temperature and (3d) velocity at the end of the previous
   // Homme step
@@ -565,12 +703,16 @@ void HommeDynamics::homme_pre_process (const int dt) {
 
   const auto ftype = params.ftype;
 
+  chk("HD::pre2");
+
   if (fv_phys_active()) {
     fv_phys_pre_process();
   } else {
     // Remap FT, FM, and Q->FQ
     m_p2d_remapper->remap(true);
   }
+
+  chk("HD::pre3");
 
   auto& tl = c.get<TimeLevel>();
 
@@ -613,22 +755,25 @@ void HommeDynamics::homme_pre_process (const int dt) {
     });
     Kokkos::fence();
   }
+  chk("HD::pre4");
 }
 
 void HommeDynamics::homme_post_process (const int dt) {
   const auto& pgn = m_phys_grid->name();
   const auto& c = Homme::Context::singleton();
   const auto& params = c.get<Homme::SimulationParams>();
-  const auto& tl = c.get<Homme::TimeLevel>();
+  auto& tl = c.get<Homme::TimeLevel>();
 
   // The internal fields are dynamic subfields of the homme states.
   // We need to update the slice they are subviewing
+  //tl.update_tracers_levels(params.dt_tracer_factor);
   get_internal_field("v_dyn").get_header().get_alloc_properties().reset_subview_idx(tl.n0);
   get_internal_field("vtheta_dp_dyn").get_header().get_alloc_properties().reset_subview_idx(tl.n0);
   get_internal_field("dp3d_dyn").get_header().get_alloc_properties().reset_subview_idx(tl.n0);
   get_internal_field("phi_int_dyn").get_header().get_alloc_properties().reset_subview_idx(tl.n0);
   get_internal_field("ps_dyn").get_header().get_alloc_properties().reset_subview_idx(tl.n0);
   get_internal_field("Qdp_dyn").get_header().get_alloc_properties().reset_subview_idx(tl.np1_qdp);
+  //get_internal_field("Qdp_dyn").get_header().get_alloc_properties().reset_subview_idx(tl.n0_qdp);
   if (not params.theta_hydrostatic_mode) {
     get_internal_field("w_int_dyn").get_header().get_alloc_properties().reset_subview_idx(tl.n0);
   }

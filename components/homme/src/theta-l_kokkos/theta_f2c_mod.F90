@@ -173,7 +173,8 @@ interface
     !
     ! Inputs
     !
-    integer(kind=c_int),  intent(in) :: nstep, nm1, n0, np1, next_output_step, nsplit_iter
+    integer(kind=c_int),  intent(in) :: next_output_step, nsplit_iter
+    integer(kind=c_int),  intent(out) :: nstep, nm1, n0, np1
     real (kind=c_double), intent(in) :: tstep
   end subroutine prim_run_subcycle_c
 

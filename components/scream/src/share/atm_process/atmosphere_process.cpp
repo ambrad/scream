@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "../../../../../lxor.hpp"
+
 namespace scream
 {
 
@@ -47,11 +49,100 @@ void AtmosphereProcess::initialize (const TimeStamp& t0, const RunType run_type)
 }
 
 void AtmosphereProcess::run (const int dt) {
+  /*
+    x with the original code, i get pass 5 fail 2
+    x with the full f routine, i get pass 10 fail 0
+    x with an immediate return from f, i get pass 1 fail 2
+    x with Kokkos::fence()s, i get pass 1 fail 1
+    x with f and just "qv", i get pass 5 fail 2 but no output
+    x with f and just "tracers", i get pass 8 fail 0
+    x with f called just at the run2 point, i get pass 7 fail 0
+    x f "tracers" just at run2
+      x return if != Dynamics: pass 4 fail 2
+    x f all fields just at run2, no all-reduce but print each rank and combine
+      later in hy
+        pass case:
+           run/e3sm.log.2388831.220825-223958.gz
+           run/case2run/e3sm.log.2388831.220825-224202.gz
+        fail case:
+           run/e3sm.log.2388810.220825-223150.gz
+           run/case2run/e3sm.log.2388810.220825-223351.gz
+    x same but now all run*. pass 9 fail 2
+        pass case: 2389956
+        fail case: 2389959
+        pass: 2: 0: amb q> AP::Dynamics run2 tracers 0 0 142395058682028624
+              2: 0: amb q> AP::Dynamics run2 T_mid 0 0 5782463337251414
+              2: 0: amb q> AP::Dynamics run2 ps 0 0 2922370151268
+        fail: 2: 0: amb q> AP::Dynamics run2 tracers 0 0 142395059315207957
+              2: 0: amb q> AP::Dynamics run2 T_mid 0 0 5782463375930520
+              2: 0: amb q> AP::Dynamics run2 ps 0 0 2922357162603
+    x same but with hydro mode and tstep_type 10.
+        pass case: 2396851
+        fail case: 2396845
+        fails in exactly the same spot
+    - checks in dycore
+        fail case: 
+        pass case: 
+    x with ftype 0 fix and no instrumentation, i get pass 10 fail 2, so same.
+   */
+  const auto f = [&] (const std::string& label) {
+                   return;
+    std::string lbl;
+    std::stringstream ss;
+    ss << label << "." << timestamp().get_num_steps();
+    lbl = ss.str();
+    for (const auto sc : {"tracers", "qv", "phis", "T_mid", "ps"}) {
+      std::string s(sc);
+      try {
+        LongLong vl[32] = {0}, vg[32] = {0};
+        int nq = 1;
+        if (s == "phis" || s == "ps") {
+          const auto v = get_field_in(s).get_view<const Real*>();
+          const auto qh = Kokkos::create_mirror_view(v);
+          Kokkos::deep_copy(qh, v);
+          for (int i = 0; i < qh.extent_int(0); ++i)
+            vl[0] ^= *reinterpret_cast<const LongLong*>(&qh(i));
+        } else if (s == "tracers") {
+          const auto v = get_group_in(s).m_bundle->get_view<const Real***>();
+          const auto qh = Kokkos::create_mirror_view(v);
+          Kokkos::deep_copy(qh, v);
+          nq = qh.extent_int(1);
+          for (int i = 0; i < qh.extent_int(0); ++i)
+            for (int j = 0; j < nq; ++j)
+              for (int k = 0; k < qh.extent_int(2); ++k)
+                vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k));
+        } else {
+          const auto v = get_field_in(s).get_view<const Real**>();
+          const auto qh = Kokkos::create_mirror_view(v);
+          Kokkos::deep_copy(qh, v);
+          for (int i = 0; i < qh.extent_int(0); ++i)
+            for (int k = 0; k < qh.extent_int(1); ++k)
+              vl[0] ^= *reinterpret_cast<const LongLong*>(&qh(i,k));
+        }
+        const auto& comm = get_comm();
+#if 1
+        all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
+        if (comm.am_i_root())
+          for (int iq = 0; iq < nq; ++iq)
+            fprintf(stdout, "amb q> AP::%s %s %s %d %lld\n",
+                    name().c_str(), lbl.c_str(), sc, iq, vg[iq]);
+#else
+        const int rank = comm.rank();
+        for (int iq = 0; iq < nq; ++iq)
+          fprintf(stdout, "amb q> AP::%s %s %s %d %d %lld\n",
+                  name().c_str(), lbl.c_str(), sc, rank, iq, vl[iq]);
+#endif
+      } catch (...) {}
+    }
+  };
+
+  f("run0");
   start_timer (m_timer_prefix + this->name() + "::run");
   if (m_params.get("enable_precondition_checks", true)) {
     // Run 'pre-condition' property checks stored in this AP
     run_precondition_checks();
   }
+  f("run1");
 
   EKAT_REQUIRE_MSG ( (dt % m_num_subcycles)==0,
       "Error! The number of subcycle iterations does not exactly divide the time step.\n"
@@ -63,12 +154,16 @@ void AtmosphereProcess::run (const int dt) {
   auto dt_sub = dt / m_num_subcycles;
   for (m_subcycle_iter=0; m_subcycle_iter<m_num_subcycles; ++m_subcycle_iter) {
     run_impl(dt_sub);
+    std::stringstream ss;
+    ss << "run2." << m_subcycle_iter;
+    f(ss.str());
   }
 
   if (m_params.get("enable_postcondition_checks", true)) {
     // Run 'post-condition' property checks stored in this AP
     run_postcondition_checks();
   }
+  f("run3");
 
   m_time_stamp += dt;
   if (m_update_time_stamps) {

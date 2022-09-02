@@ -16,8 +16,134 @@
 #include "CamForcing.hpp"
 #include "profiling.hpp"
 
+#include "mpi/Comm.hpp"
+#include "../../../../../lxor.hpp"
+
 namespace Homme
 {
+
+#define GLOBAL
+
+static LongLong reduce (LongLong v) {
+#ifdef GLOBAL
+  auto& c = Context::singleton();
+  LongLong g;
+  all_reduce(c.get<Comm>().mpi_comm(), &v, &g, 1, Op(lxor, true));
+  return g;
+#else
+  return v;
+#endif
+}
+
+void chk (const std::string& label) {
+  return;
+  using namespace Homme;
+  Kokkos::fence();
+  auto& c = Context::singleton();
+  auto& tl = c.get<TimeLevel>();
+  const int t = tl.n0;
+  SimulationParams& params = c.get<SimulationParams>();
+  Tracers& tracers = c.get<Tracers>();
+  ElementsState& state = c.get<Elements>().m_state;
+  const auto& q_d = tracers.Q;
+  const auto& fq_d = tracers.fq;
+  const auto& qdp_d = tracers.qdp;
+  const auto& vtheta_dp_d = state.m_vtheta_dp;
+  const auto& dp3d_d = state.m_dp3d;
+  const auto& ps_d = state.m_ps_v;
+  const auto& phis_d = c.get<Elements>().m_geometry.m_phis;
+  const int rank = c.get<Comm>().rank();
+  const bool pr =
+#ifdef GLOBAL
+    rank == 0
+#else
+    true
+#endif
+    ;
+  if (pr) printf("amb q> nstep %d n0 %d n0_qdp %d\n", tl.nstep, tl.n0, tl.n0_qdp);
+  {
+    LongLong v = 0;
+    const auto ps = Kokkos::create_mirror_view(ps_d);
+    Kokkos::deep_copy(ps, ps_d);
+    for (int i = 0; i < ps.extent_int(0); ++i)
+      for (int j = 0; j < 4; ++j)
+        for (int k = 0; k < 4; ++k)
+          v ^= *reinterpret_cast<const LongLong*>(&ps(i,t,j,k));
+    v = reduce(v);
+    if (pr) printf("amb q> dy %s ps %d 0 %lld\n", label.c_str(), rank, v);
+  }
+  {
+    LongLong v = 0;
+    const auto phis = Kokkos::create_mirror_view(phis_d);
+    Kokkos::deep_copy(phis, phis_d);
+    for (int i = 0; i < phis.extent_int(0); ++i)
+      for (int j = 0; j < 4; ++j)
+        for (int k = 0; k < 4; ++k)
+          v ^= *reinterpret_cast<const LongLong*>(&phis(i,j,k));
+    v = reduce(v);
+    if (pr) printf("amb q> dy %s phis %d 0 %lld\n", label.c_str(), rank, v);
+  }
+  {
+    LongLong v = 0;
+    const auto vth = Kokkos::create_mirror_view(vtheta_dp_d);
+    Kokkos::deep_copy(vth, vtheta_dp_d);
+    for (int i = 0; i < vth.extent_int(0); ++i)
+      for (int j = 0; j < 4; ++j)
+        for (int k = 0; k < 4; ++k)
+          for (int l = 0; l < NUM_LEV; ++l)
+            v ^= *reinterpret_cast<const LongLong*>(&vth(i,t,j,k,l));
+    v = reduce(v);
+    if (pr) printf("amb q> dy %s vth %d 0 %lld\n", label.c_str(), rank, v);
+  }
+  {
+    LongLong v = 0;
+    const auto dp = Kokkos::create_mirror_view(dp3d_d);
+    Kokkos::deep_copy(dp, dp3d_d);
+    for (int i = 0; i < dp.extent_int(0); ++i)
+      for (int j = 0; j < 4; ++j)
+        for (int k = 0; k < 4; ++k)
+          for (int l = 0; l < NUM_LEV; ++l)
+            v ^= *reinterpret_cast<const LongLong*>(&dp(i,t,j,k,l));
+    v = reduce(v);
+    if (pr) printf("amb q> dy %s dp3d %d 0 %lld\n", label.c_str(), rank, v);
+  }
+  {
+    LongLong v = 0;
+    const auto q = Kokkos::create_mirror_view(fq_d);
+    Kokkos::deep_copy(q, fq_d);
+    for (int i = 0; i < q.extent_int(0); ++i)
+      for (int j = 0; j < 4; ++j)
+        for (int k = 0; k < 4; ++k)
+          for (int l = 0; l < NUM_LEV; ++l)
+            v ^= *reinterpret_cast<const LongLong*>(&q(i,0,j,k,l));
+    v = reduce(v);
+    if (pr) printf("amb q> dy %s fqv %d 0 %lld\n", label.c_str(), rank, v);
+  }
+  {
+    LongLong v = 0;
+    const auto q = Kokkos::create_mirror_view(q_d);
+    Kokkos::deep_copy(q, q_d);
+    for (int i = 0; i < q.extent_int(0); ++i)
+      for (int j = 0; j < 4; ++j)
+        for (int k = 0; k < 4; ++k)
+          for (int l = 0; l < NUM_LEV; ++l)
+            v ^= *reinterpret_cast<const LongLong*>(&q(i,0,j,k,l));
+    v = reduce(v);
+    if (pr) printf("amb q> dy %s qv %d 0 %lld\n", label.c_str(), rank, v);
+  }
+  {
+    LongLong v = 0;
+    const auto q = Kokkos::create_mirror_view(qdp_d);
+    Kokkos::deep_copy(q, qdp_d);
+    for (int i = 0; i < q.extent_int(0); ++i)
+      for (int j = 0; j < 4; ++j)
+        for (int k = 0; k < 4; ++k)
+          for (int l = 0; l < NUM_LEV; ++l)
+            v ^= *reinterpret_cast<const LongLong*>(&q(i,tl.np1_qdp,0,j,k,l));
+    v = reduce(v);
+    if (pr) printf("amb q> dy %s qdp %d 0 %lld\n", label.c_str(), rank, v);
+  }
+}
 
 void prim_step (const Real, const bool);
 void prim_step_flexible (const Real, const bool);
@@ -61,8 +187,11 @@ void prim_run_subcycle_c (const Real& dt, int& nstep, int& nm1, int& n0, int& np
                           const int& next_output_step, const int& nsplit_iteration)
 {
   GPTLstart("tl-sc prim_run_subcycle_c");
-
   auto& context = Context::singleton();
+  TimeLevel& tl = context.get<TimeLevel>();
+  std::stringstream ss; ss << "prim_run_subcycle_c." << tl.nstep << ".";
+  const std::string lbl = ss.str();
+  chk(lbl+"1");
 
   // Get simulation params
   SimulationParams& params = context.get<SimulationParams>();
@@ -73,7 +202,6 @@ void prim_run_subcycle_c (const Real& dt, int& nstep, int& nm1, int& n0, int& np
                                        params.dt_remap_factor < params.dt_tracer_factor);
 
   // Get time info and compute dt for tracers and remap
-  TimeLevel& tl = context.get<TimeLevel>();
   const Real dt_q = dt*params.dt_tracer_factor;
   Real dt_remap;
   int nstep_end; // nstep at end of this routine
@@ -98,7 +226,7 @@ void prim_run_subcycle_c (const Real& dt, int& nstep, int& nm1, int& n0, int& np
     Diagnostics& diags = context.get<Diagnostics>();
     diags.run_diagnostics(true,2);
   }
-
+  chk(lbl+"2");
   if ( ! independent_time_steps) {
     tl.update_tracers_levels(params.dt_tracer_factor);
 
@@ -111,9 +239,8 @@ void prim_run_subcycle_c (const Real& dt, int& nstep, int& nm1, int& n0, int& np
     if (params.ftype == ForcingAlg::FORCING_2 && params.nsplit_iteration == 1 ){
          apply_cam_forcing_tracers(dt_remap*params.nsplit);
     }
-
+    chk(lbl+"3");
     apply_cam_forcing_dynamics(dt_remap);
-    
 #else
     //standalone homme, support ftype0 and ftype2
     //ftype0  = ftype2 if dt_remap>=dt_tracer, but
@@ -123,6 +250,7 @@ void prim_run_subcycle_c (const Real& dt, int& nstep, int& nm1, int& n0, int& np
       apply_cam_forcing(dt_remap);
     }
 #endif
+    chk(lbl+"4");
 
     if (compute_diagnostics) {
       Diagnostics& diags = context.get<Diagnostics>();
@@ -132,9 +260,13 @@ void prim_run_subcycle_c (const Real& dt, int& nstep, int& nm1, int& n0, int& np
     // Loop over rsplit vertically lagrangian timesteps
     GPTLstart("tl-sc prim_step-loop");
     prim_step(dt,compute_diagnostics);
+    chk(lbl+"5");
     for (int r=1; r<params.rsplit; ++r) {
       tl.update_dynamics_levels(UpdateType::LEAPFROG);
       prim_step(dt,false);
+      std::stringstream ss;
+      ss << lbl << "5." << r;
+      chk(ss.str());
     }
     GPTLstop("tl-sc prim_step-loop");
 
@@ -150,15 +282,17 @@ void prim_run_subcycle_c (const Real& dt, int& nstep, int& nm1, int& n0, int& np
     // always for tracers
     // if rsplit>0:  also remap dynamics and compute reference level ps_v
     ////////////////////////////////////////////////////////////////////////
+    chk(lbl+"6");
     GPTLstart("tl-sc vertical_remap");
     vertical_remap(dt_remap);
     GPTLstop("tl-sc vertical_remap");
-
+    chk(lbl+"7");
     ////////////////////////////////////////////////////////////////////////
     // time step is complete.  update some diagnostic variables:
     // Q    (mixing ratio)
     ////////////////////////////////////////////////////////////////////////
     update_q(tl.np1_qdp,tl.np1);
+    chk(lbl+"8");
   } else { // independent_time_steps
     prim_step_flexible(dt, compute_diagnostics);
   }
@@ -178,6 +312,7 @@ void prim_run_subcycle_c (const Real& dt, int& nstep, int& nm1, int& n0, int& np
   np1   = tl.np1;
 
   GPTLstop("tl-sc prim_run_subcycle_c");
+  chk(lbl+"9");
 }
 
 } // extern "C"

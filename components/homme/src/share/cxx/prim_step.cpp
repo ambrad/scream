@@ -19,6 +19,7 @@ namespace Homme
 void prim_advance_exp (TimeLevel& tl, const Real dt, const bool compute_diagnostics);
 void prim_advec_tracers_remap (const Real);
 void vertical_remap (const Real);
+void chk(const std::string& label);
 
 static void set_tracer_transport_derived_values (
   const SimulationParams& params, const Elements& elements, const TimeLevel& tl)
@@ -76,6 +77,9 @@ void prim_step (const Real dt, const bool compute_diagnostics)
 
   // Get the time level info
   TimeLevel& tl = Context::singleton().get<TimeLevel>();
+  std::stringstream ss; ss << "prim_step." << tl.nstep << ".";
+  const std::string lbl = ss.str();
+  chk(lbl+"1");
 
   set_tracer_transport_derived_values(params, elements, tl);
 
@@ -85,10 +89,14 @@ void prim_step (const Real dt, const bool compute_diagnostics)
   GPTLstart("tl-s prim_advance_exp-loop");
   prim_advance_exp(tl,dt,compute_diagnostics);
   tl.tevolve += dt;
+  chk(lbl+"2");
   for (int n=1; n<params.dt_tracer_factor; ++n) {
     tl.update_dynamics_levels(UpdateType::LEAPFROG);
     prim_advance_exp(tl,dt,false);
     tl.tevolve += dt;
+    std::stringstream ss;
+    ss << lbl << "." << n;
+    chk(ss.str());
   }
   GPTLstop("tl-s prim_advance_exp-loop");
 
@@ -109,6 +117,7 @@ void prim_step (const Real dt, const bool compute_diagnostics)
   if (params.qsize>0) {
     prim_advec_tracers_remap(dt*params.dt_tracer_factor);
   }
+  chk(lbl+"3");
   GPTLstop("tl-s prim_advec_tracers_remap");
   GPTLstop("tl-s prim_step");
 }
