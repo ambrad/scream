@@ -137,6 +137,19 @@ void Functions<S,D>::shoc_main_internal(
   const auto s_thetal  = ekat::scalarize(thetal);
   const auto s_shoc_ql = ekat::scalarize(shoc_ql);
   const auto s_shoc_qv = ekat::scalarize(shoc_qv);
+  Kokkos::single(
+    Kokkos::PerTeam(team),
+    [&] () {
+      for (int k = 0; k < nlev; ++k) {
+        combine(r.v[32], thetal[k]);
+        combine(r.v[32], shoc_ql[k]);
+        combine(r.v[32], host_dse[k]);
+        combine(r.v[32], pdel[k]);
+        combine(r.v[32], qw[k]);
+        combine(r.v[32], u_wind[k]);
+        combine(r.v[32], v_wind[k]);
+      }
+    });
 
   // Compute integrals of static energy, kinetic energy, water vapor, and liquid water
   // for the computation of total energy before SHOC is called.  This is for an
@@ -144,13 +157,14 @@ void Functions<S,D>::shoc_main_internal(
   // conserves) and static energy (which E3SM conserves) are not exactly equal.
   shoc_energy_integrals(team,nlev,host_dse,pdel,qw,shoc_ql,u_wind,v_wind, // Input
                         se_b,ke_b,wv_b,wl_b);                             // Output
+  team.team_barrier();
   Kokkos::single(
     Kokkos::PerTeam(team),
     [&] () {
       combine(r.v[0], se_b);
-      combine(r.v[0], ke_b);
-      combine(r.v[0], wv_b);
-      combine(r.v[0], wl_b);
+      combine(r.v[29], ke_b);
+      combine(r.v[30], wv_b);
+      combine(r.v[31], wl_b);
     });
 
   for (Int t=0; t<nadv; ++t) {
@@ -249,8 +263,13 @@ void Functions<S,D>::shoc_main_internal(
     Kokkos::single(
       Kokkos::PerTeam(team),
       [&] () {
-        for (int k = 0; k < nlev; ++k)
+        for (int k = 0; k < nlev; ++k) {
           combine(r.v[6], thetal[k]);
+          combine(r.v[7], u_wind[k]);
+          combine(r.v[8], v_wind[k]);
+          combine(r.v[9], tke[k]);
+          combine(r.v[10], qw[k]);
+        }
       });
 
     // Diagnose the second order moments
@@ -264,8 +283,13 @@ void Functions<S,D>::shoc_main_internal(
     Kokkos::single(
       Kokkos::PerTeam(team),
       [&] () {
-        for (int k = 0; k < nlev; ++k)
-          combine(r.v[7], wtke_sec[k]);
+        for (int k = 0; k < nlev; ++k) {
+          combine(r.v[11], wtke_sec[k]);
+          combine(r.v[12], uw_sec[k]);
+          combine(r.v[13], w_sec[k]);
+          combine(r.v[14], vw_sec[k]);
+          combine(r.v[15], qwthl_sec[k]);
+        }
       });
 
     // Diagnose the third moment of vertical velocity,
@@ -282,7 +306,7 @@ void Functions<S,D>::shoc_main_internal(
       Kokkos::PerTeam(team),
       [&] () {
         for (int k = 0; k < nlev; ++k)
-          combine(r.v[8], w3[k]);
+          combine(r.v[16], w3[k]);
       });
     shoc_assumed_pdf(team,nlev,nlevi,thetal,qw,w_field,thl_sec,qw_sec, // Input
                      wthl_sec,w_sec,wqw_sec,qwthl_sec,w3,pres,         // Input
@@ -299,7 +323,7 @@ void Functions<S,D>::shoc_main_internal(
       Kokkos::PerTeam(team),
       [&] () {
         for (int k = 0; k < nlev; ++k)
-          combine(r.v[9], w3[k]);
+          combine(r.v[17], tke[k]);
       });
   }
 
@@ -316,18 +340,19 @@ void Functions<S,D>::shoc_main_internal(
     Kokkos::PerTeam(team),
     [&] () {
       for (int k = 0; k < nlev; ++k)
-        combine(r.v[10], host_dse[k]);
+        combine(r.v[18], host_dse[k]);
     });
   shoc_energy_integrals(team,nlev,host_dse,pdel,  // Input
                         qw,shoc_ql,u_wind,v_wind, // Input
                         se_a,ke_a,wv_a,wl_a);     // Output
+  team.team_barrier();
   Kokkos::single(
     Kokkos::PerTeam(team),
     [&] () {
-      combine(r.v[11], se_a);
-      combine(r.v[11], ke_a);
-      combine(r.v[11], wv_a);
-      combine(r.v[12], wl_a);
+      combine(r.v[19], se_a);
+      combine(r.v[20], ke_a);
+      combine(r.v[21], wv_a);
+      combine(r.v[22], wl_a);
     });
 
   shoc_energy_fixer(team,nlev,nlevi,dtime,nadv,zt_grid,zi_grid, // Input
@@ -338,11 +363,13 @@ void Functions<S,D>::shoc_main_internal(
 
   team.team_barrier();
   Kokkos::single(
-      Kokkos::PerTeam(team),
-      [&] () {
-        for (int k = 0; k < nlev; ++k)
-          combine(r.v[13], host_dse[k]);
-      });
+    Kokkos::PerTeam(team),
+    [&] () {
+      for (int k = 0; k < nlev; ++k)
+        combine(r.v[23], host_dse[k]);
+      combine(r.v[33], wthl_sfc);
+      combine(r.v[34], wqw_sfc);
+    });
 
   // Remaining code is to diagnose certain quantities
   // related to PBL.  No answer changing subroutines
@@ -360,7 +387,7 @@ void Functions<S,D>::shoc_main_internal(
     Kokkos::PerTeam(team),
     [&] () {
       for (int k = 0; k < nlev; ++k)
-        combine(r.v[14], shoc_qv[k]);
+        combine(r.v[24], shoc_qv[k]);
     });
   shoc_diag_obklen(uw_sfc,vw_sfc,      // Input
                    wthl_sfc,wqw_sfc,   // Input
@@ -368,13 +395,26 @@ void Functions<S,D>::shoc_main_internal(
                    s_shoc_ql(nlev-1),  // Input
                    s_shoc_qv(nlev-1),  // Input
                    ustar,kbfs,obklen); // Output
-
+  team.team_barrier();
+  Kokkos::single(
+    Kokkos::PerTeam(team),
+    [&] () {
+      combine(r.v[25], ustar);
+      combine(r.v[26], kbfs);
+      combine(r.v[27], obklen);
+    });
   pblintd(team,nlev,nlevi,npbl,zt_grid,   // Input
           zi_grid,thetal,shoc_ql,shoc_qv, // Input
           u_wind,v_wind,ustar,obklen,     // Input
           kbfs,shoc_cldfrac,              // Input
           workspace,                      // Workspace
           pblh);                          // Output
+  team.team_barrier();
+  Kokkos::single(
+    Kokkos::PerTeam(team),
+    [&] () {
+      combine(r.v[28], pblh);
+    });
 
   // Release temporary variables from the workspace
   workspace.template release_many_contiguous<5>(
@@ -474,13 +514,13 @@ Int Functions<S,D>::shoc_main(
     shoc_output.pblh(i) = pblh_s;
   }, result);
   Kokkos::fence();
-
+#if 1
   Result g;
   all_reduce(comm->mpi_comm(), result.v, g.v, g.n, Op(lxor, true));
   if (comm->am_i_root())
-    for (int i = 0; i < 14; ++i)
+    for (int i = 0; i <= 34; ++i)
       printf("amb q> shoc end result 0 %d %lld\n", i, g.v[i]);
-
+#endif
   auto finish = std::chrono::steady_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
   return duration.count();

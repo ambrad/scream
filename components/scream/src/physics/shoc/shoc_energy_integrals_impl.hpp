@@ -26,6 +26,7 @@ void Functions<S,D>
   using ExeSpaceUtils = ekat::ExeSpaceUtils<typename KT::ExeSpace>;
   const auto ggr = C::gravit;
 
+#if 0
   // Compute se_int
   ExeSpaceUtils::view_reduction(team,0,nlev,
                                 [&] (const int k) -> Spack {
@@ -49,6 +50,33 @@ void Functions<S,D>
                                 [&] (const int k) -> Spack {
     return rcm(k)*pdel(k)/ggr;
   }, wl_int);
+#else
+  team.team_barrier();
+  // Compute se_int
+  Kokkos::parallel_reduce(Kokkos::TeamThreadRange(team,0,nlev),
+                                [&] (const int k, Scalar& a) {
+    a += host_dse(k)[0]*pdel(k)[0]/ggr;
+  }, se_int);
+  team.team_barrier();
+  // Compute ke_int
+  Kokkos::parallel_reduce(Kokkos::TeamThreadRange(team,0,nlev),
+                                [&] (const int k, Scalar& a) {
+    a += sp(0.5)*((u_wind(k)[0]*u_wind(k)[0])+(v_wind(k)[0]*v_wind(k)[0]))*pdel(k)[0]/ggr;
+  }, ke_int);
+  team.team_barrier();
+  // Compute wv_int
+  Kokkos::parallel_reduce(Kokkos::TeamThreadRange(team,0,nlev),
+                                [&] (const int k, Scalar& a) {
+    a += (rtm(k)[0]-rcm(k)[0])*pdel(k)[0]/ggr;
+  }, wv_int);
+  team.team_barrier();
+  // Compute wl_int
+  Kokkos::parallel_reduce(Kokkos::TeamThreadRange(team,0,nlev),
+                                [&] (const int k, Scalar& a) {
+    a += rcm(k)[0]*pdel(k)[0]/ggr;
+  }, wl_int);
+  team.team_barrier();
+#endif
 }
 
 } // namespace shoc

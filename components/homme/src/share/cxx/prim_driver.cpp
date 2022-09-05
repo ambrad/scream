@@ -36,7 +36,6 @@ static LongLong reduce (LongLong v) {
 }
 
 void chk (const std::string& label) {
-  return;
   using namespace Homme;
   Kokkos::fence();
   auto& c = Context::singleton();

@@ -86,7 +86,6 @@ void AtmosphereProcess::run (const int dt) {
     x with ftype 0 fix and no instrumentation, i get pass 10 fail 2, so same.
    */
   const auto f = [&] (const std::string& label) {
-                   return;
     std::string lbl;
     std::stringstream ss;
     ss << label << "." << timestamp().get_num_steps();
