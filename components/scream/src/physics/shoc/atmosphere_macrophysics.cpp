@@ -364,7 +364,6 @@ void SHOCMacrophysics::initialize_impl (const RunType run_type)
                                  T_mid, dse, z_mid, phis);
 
   // Set field property checks for the fields in this process
-  auto eps = std::numeric_limits<Real>::epsilon();
   using Interval = FieldWithinIntervalCheck;
   using LowerBound = FieldLowerBoundCheck;
   add_postcondition_check<Interval>(get_field_out("T_mid"),m_grid,130.0,500.0,false);
@@ -432,7 +431,7 @@ void SHOCMacrophysics::run_impl (const int dt)
 
   // Run shoc main
   SHF::shoc_main(m_num_cols, m_num_levs, m_num_levs+1, m_npbl, m_nadv, m_num_tracers, dt,
-                 workspace_mgr,input,input_output,output,history_output);
+                 workspace_mgr,input,input_output,output,history_output,&get_comm());
 
   // Postprocessing of SHOC outputs
   Kokkos::parallel_for("shoc_postprocess",
