@@ -9,8 +9,26 @@
 #include "ekat/ekat_pack_kokkos.hpp"
 #include "ekat/ekat_workspace.hpp"
 
+#include "ekat/mpi/ekat_comm.hpp"
+#include "../../../../../lxor.hpp"
+
 namespace scream {
 namespace shoc {
+
+template <typename T>
+KOKKOS_INLINE_FUNCTION void combine (LongLong& a, const T& b) {
+  a ^= *reinterpret_cast<const LongLong*>(&b);
+}
+
+struct Result {
+  static const int n = 40;
+  LongLong v[n];
+  KOKKOS_INLINE_FUNCTION Result () { for (int i = 0; i < n; ++i) v[i] = 0; }
+  KOKKOS_INLINE_FUNCTION Result& operator+= (const Result& r) {
+    for (int i = 0; i < n; ++i) v[i] ^= r.v[i];
+    return *this;
+  }
+};
 
 /*
  * Functions is a stateless struct used to encapsulate a
@@ -610,7 +628,8 @@ struct Functions
     const uview_1d<Spack>&       w3,
     const uview_1d<Spack>&       wqls_sec,
     const uview_1d<Spack>&       brunt,
-    const uview_1d<Spack>&       isotropy);
+    const uview_1d<Spack>&       isotropy,
+    Result& r);
 
   // Return microseconds elapsed
   static Int shoc_main(
@@ -625,7 +644,8 @@ struct Functions
     const SHOCInput&         shoc_input,           // Input
     const SHOCInputOutput&   shoc_input_output,    // Input/Output
     const SHOCOutput&        shoc_output,          // Output
-    const SHOCHistoryOutput& shoc_history_output); // Output (diagnostic)
+    const SHOCHistoryOutput& shoc_history_output,  // Output (diagnostic)
+    const ekat::Comm* comm = nullptr);
 
   KOKKOS_FUNCTION
   static void pblintd_height(

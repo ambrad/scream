@@ -442,10 +442,19 @@ void SHOCMacrophysics::run_impl (const int dt)
 
   // Preprocessing of SHOC inputs. Kernel contains a parallel_scan,
   // so a special TeamPolicy is required.
-  Kokkos::parallel_for("shoc_preprocess",
-                       scan_policy,
-                       shoc_preprocess);
+  shoc::Result result;
+  Kokkos::parallel_reduce("shoc_preprocess",
+                          scan_policy,
+                          shoc_preprocess,
+                          result);
   Kokkos::fence();
+#if 1
+  shoc::Result g;
+  all_reduce(get_comm().mpi_comm(), result.v, g.v, g.n, Op(lxor, true));
+  if (get_comm().am_i_root())
+    for (int i = 0; i <= 3; ++i)
+      printf("amb q> shoc pre result 0 %d %lld\n", i, g.v[i]);
+#endif
 
   // For now set the host timestep to the shoc timestep. This forces
   // number of SHOC timesteps (nadv) to be 1.
@@ -458,7 +467,7 @@ void SHOCMacrophysics::run_impl (const int dt)
 
   // Run shoc main
   SHF::shoc_main(m_num_cols, m_num_levs, m_num_levs+1, m_npbl, m_nadv, m_num_tracers, dt,
-                 workspace_mgr,input,input_output,output,history_output);
+                 workspace_mgr,input,input_output,output,history_output,&get_comm());
 
   // Postprocessing of SHOC outputs
   Kokkos::parallel_for("shoc_postprocess",
