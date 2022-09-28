@@ -86,6 +86,10 @@ private:
   TeamUtils<ExecSpace> m_tu;
 };
 
+// The primary purpose of this routine is to check state when you know it's
+// already bad and you need detailed information on the bad elements.
+void check_print_abort_on_bad_elems(const ElementsState& state, const int time_level);
+
 } // Homme
 
 #endif // HOMMEXX_ELEMENTS_STATE_HPP

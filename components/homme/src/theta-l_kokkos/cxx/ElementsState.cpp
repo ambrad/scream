@@ -11,6 +11,8 @@
 #include "utilities/SyncUtils.hpp"
 #include "utilities/TestUtils.hpp"
 #include "HybridVCoord.hpp"
+#include "Context.hpp"
+#include "mpi/Comm.hpp"
 
 #include <limits>
 #include <random>
@@ -336,6 +338,48 @@ void ElementsState::push_to_f90_pointers (F90Ptr& state_v, F90Ptr& state_w_i, F9
   sync_to_host(m_vtheta_dp, state_vtheta_dp_f90);
   sync_to_host(m_phinh_i,   state_phinh_i_f90);
   sync_to_host(m_dp3d,      state_dp3d_f90);
+}
+
+void check_print_abort_on_bad_elems (const ElementsState& s, const int tlvl) {
+  using Kokkos::ALL;
+  using Kokkos::parallel_for;
+  
+  const int nelem = s.num_elems();
+  const int nplev = NUM_PHYSICAL_LEV;
+
+  const auto vtheta_dp = Kokkos::subview(s.m_vtheta_dp, ALL, tlvl, ALL, ALL, ALL);
+  const auto dp3d = Kokkos::subview(s.m_dp3d, ALL, tlvl, ALL, ALL, ALL);
+  const auto phinh_i = Kokkos::subview(s.m_phinh_i, ALL, tlvl, ALL, ALL, ALL);
+
+  // Write nerr = 1 if there is a problem; else do nothing.
+  const auto tvr = Kokkos::ThreadVectorRange(team, nplev);
+  const auto check = KOKKOS_LAMBDA (const MT& team, int& nerr) {
+    const auto ie = team.league_rank();
+    const auto g = [&] (const int idx) {
+      const int igp = idx / NP;
+      const int jgp = idx % NP;
+      const Real* const v = reinterpret_cast<const Real*>(&vtheta_dp(ie,igp,jgp,0));
+      const Real* const p = reinterpret_cast<const Real*>(&     dp3d(ie,igp,jgp,0));
+      const Real* const h = reinterpret_cast<const Real*>(&  phinh_i(ie,igp,jgp,0));
+      // Write races but doesn't matter since any single nerr = 1 write is
+      // sufficient to conclude there is a problem.
+      const auto f1 = [&] (const int k) { if (v[k] < 0)      nerr = 1; };
+      const auto f2 = [&] (const int k) { if (p[k] < 0)      nerr = 1; };
+      const auto f3 = [&] (const int k) { if (h[k+1] > h[k]) nerr = 1; };
+      parallel_for(tvr, f1);
+      parallel_for(tvr, f2);
+      parallel_for(tvr, f3);
+    };
+    parallel_for(Kokkos::TeamThreadRange(team, NP*NP), g);
+  };
+  int nerr;
+  parallel_reduce(get_default_team_policy<ExecSpace>(nelem), check, nerr);
+  // In the expected use case, nerr > 0, but we did the check above on device
+  // (for speed) in case there are other use cases.
+  if (nerr == 0) return;
+
+  // Now that we know there is an error, we can do the rest inefficiently.
+  const auto& comm = Context::singleton().get<Connectivity>().get_comm();
 }
 
 } // namespace Homme
