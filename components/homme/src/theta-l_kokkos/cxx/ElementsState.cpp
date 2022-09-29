@@ -341,8 +341,7 @@ void ElementsState::push_to_f90_pointers (F90Ptr& state_v, F90Ptr& state_w_i, F9
   sync_to_host(m_dp3d,      state_dp3d_f90);
 }
 
-void check_print_abort_on_bad_elems (const std::string& label, const ElementsState& s,
-                                     const int tlvl) {
+static bool all_good_elems (const ElementsState& s, const int tlvl) {
   using Kokkos::ALL;
   using Kokkos::parallel_for;
   
@@ -376,14 +375,31 @@ void check_print_abort_on_bad_elems (const std::string& label, const ElementsSta
   };
   int nerr;
   parallel_reduce(get_default_team_policy<ExecSpace>(nelem), check, nerr);
-  // In the expected use case, nerr > 0, but we did the check above on device
-  // (for speed) in case there are other use cases.
-  if (nerr == 0) return;
+  
+  return nerr == 0;
+}
 
-  fprintf(stderr,"amb> check_print_abort_on_bad_elems %s\n",label.c_str());
+void check_print_abort_on_bad_elems (const std::string& label, const ElementsState& s,
+                                     const int tlvl) {
+  // On-device and, thus, efficient.
+  if (all_good_elems(s, tlvl)) return;
 
   // Now that we know there is an error, we can do the rest inefficiently.
+  const int nelem = s.num_elems();
+  const int nplev = NUM_PHYSICAL_LEV, ntl = NUM_TIME_LEVELS, vecsz = VECTOR_SIZE;
   const auto& comm = Context::singleton().get<Connectivity>().get_comm();
+
+  const auto vtheta_dp_h = Kokkos::create_mirror_view(s.m_vtheta_dp);
+  Kokkos::deep_copy(vtheta_dp_h, s.m_vtheta_dp);
+  const auto dp3d_h = Kokkos::create_mirror_view(s.m_dp3d);
+  Kokkos::deep_copy(dp3d_h, s.m_dp3d);
+  const auto phinh_i_h = Kokkos::create_mirror_view(s.m_phinh_i);
+  Kokkos::deep_copy(phinh_i_h, s.m_phinh_i);
+
+  HostView<Real*****>
+    vtheta_dp(reinterpret_cast<Real*>(&vtheta_dp_h(0,0,0,0,0)), nelem, ntl, NP, NP, NUM_LEV  *vecsz),
+    dp3d     (reinterpret_cast<Real*>(&dp3d_h     (0,0,0,0,0)), nelem, ntl, NP, NP, NUM_LEV  *vecsz),
+    phinh_i  (reinterpret_cast<Real*>(&phinh_i_h  (0,0,0,0,0)), nelem, ntl, NP, NP, NUM_LEV_P*vecsz);
 }
 
 } // namespace Homme
