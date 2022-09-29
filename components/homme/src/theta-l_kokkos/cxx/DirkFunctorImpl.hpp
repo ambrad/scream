@@ -404,9 +404,9 @@ struct DirkFunctorImpl {
     Kokkos::parallel_reduce(m_policy, toplevel, nerr);
     if (nerr > 0) {
       const int nt[] = {nm1, n0, np1};
-      const int ntname[] = {"nm1", "n0", "np1"};
+      const char* ntname[] = {"nm1", "n0", "np1"};
       for (int i = 0; i < 3; ++i)
-        check_print_abort_on_bad_elems(std::string("DIRK Newton loop ") << ntname[i],
+        check_print_abort_on_bad_elems(std::string("DIRK Newton loop ") + ntname[i],
                                        e.m_state, nt[i]);
     }
   }
@@ -571,14 +571,15 @@ struct DirkFunctorImpl {
   {
     using Kokkos::parallel_for;
 
-    const int n = npack;
+    const int n = npack, ns = packn;
     const auto pv = Kokkos::ThreadVectorRange(kv.team, n);
     bool ok = true;
 
     // Compute pnh(1:nlev,:). pnh(nlevp,:) is not needed.
     const auto f1 = [&] (const int k) {
       const auto g = [&] (const int i) {
-        if (vtheta_dp(k,i) < 0 || dphi(k,i) > 0) ok = false;
+        for (int s = 0; s < ns; ++s)
+          if (vtheta_dp(k,i)[s] < 0 || dphi(k,i)[s] > 0) ok = false;
         EquationOfState::compute_pnh_and_exner(
           vtheta_dp(k,i), dphi(k,i), pnh(k,i), exner(k,i));
       };

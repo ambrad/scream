@@ -12,6 +12,7 @@
 #include "utilities/TestUtils.hpp"
 #include "HybridVCoord.hpp"
 #include "Context.hpp"
+#include "mpi/Connectivity.hpp"
 #include "mpi/Comm.hpp"
 
 #include <limits>
@@ -340,7 +341,8 @@ void ElementsState::push_to_f90_pointers (F90Ptr& state_v, F90Ptr& state_w_i, F9
   sync_to_host(m_dp3d,      state_dp3d_f90);
 }
 
-void check_print_abort_on_bad_elems (const ElementsState& s, const int tlvl) {
+void check_print_abort_on_bad_elems (const std::string& label, const ElementsState& s,
+                                     const int tlvl) {
   using Kokkos::ALL;
   using Kokkos::parallel_for;
   
@@ -352,8 +354,7 @@ void check_print_abort_on_bad_elems (const ElementsState& s, const int tlvl) {
   const auto phinh_i = Kokkos::subview(s.m_phinh_i, ALL, tlvl, ALL, ALL, ALL);
 
   // Write nerr = 1 if there is a problem; else do nothing.
-  const auto tvr = Kokkos::ThreadVectorRange(team, nplev);
-  const auto check = KOKKOS_LAMBDA (const MT& team, int& nerr) {
+  const auto check = KOKKOS_LAMBDA (const TeamMember& team, int& nerr) {
     const auto ie = team.league_rank();
     const auto g = [&] (const int idx) {
       const int igp = idx / NP;
@@ -366,6 +367,7 @@ void check_print_abort_on_bad_elems (const ElementsState& s, const int tlvl) {
       const auto f1 = [&] (const int k) { if (v[k] < 0)      nerr = 1; };
       const auto f2 = [&] (const int k) { if (p[k] < 0)      nerr = 1; };
       const auto f3 = [&] (const int k) { if (h[k+1] > h[k]) nerr = 1; };
+      const auto tvr = Kokkos::ThreadVectorRange(team, nplev);
       parallel_for(tvr, f1);
       parallel_for(tvr, f2);
       parallel_for(tvr, f3);
@@ -377,6 +379,8 @@ void check_print_abort_on_bad_elems (const ElementsState& s, const int tlvl) {
   // In the expected use case, nerr > 0, but we did the check above on device
   // (for speed) in case there are other use cases.
   if (nerr == 0) return;
+
+  fprintf(stderr,"amb> check_print_abort_on_bad_elems %s\n",label.c_str());
 
   // Now that we know there is an error, we can do the rest inefficiently.
   const auto& comm = Context::singleton().get<Connectivity>().get_comm();
