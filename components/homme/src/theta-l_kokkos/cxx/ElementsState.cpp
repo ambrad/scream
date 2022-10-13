@@ -11,6 +11,7 @@
 #include "utilities/SyncUtils.hpp"
 #include "utilities/TestUtils.hpp"
 #include "HybridVCoord.hpp"
+#include "ElementsGeometry.hpp"
 #include "Context.hpp"
 #include "mpi/Connectivity.hpp"
 #include "mpi/Comm.hpp"
@@ -365,7 +366,7 @@ static bool all_good_elems (const ElementsState& s, const int tlvl) {
       // sufficient to conclude there is a problem.
       const auto f1 = [&] (const int k) { if (v[k] < 0)      nerr = 1; };
       const auto f2 = [&] (const int k) { if (p[k] < 0)      nerr = 1; };
-      const auto f3 = [&] (const int k) { if (h[k+1] > h[k]) nerr = 1; };
+      const auto f3 = [&] (const int k) { if (h[k] < h[k+1]) nerr = 1; };
       const auto tvr = Kokkos::ThreadVectorRange(team, nplev);
       parallel_for(tvr, f1);
       parallel_for(tvr, f2);
@@ -380,7 +381,7 @@ static bool all_good_elems (const ElementsState& s, const int tlvl) {
 }
 
 void check_print_abort_on_bad_elems (const std::string& label, const ElementsState& s,
-                                     const int tlvl) {
+                                     const ElementsGeometry& geometry, const int tlvl) {
   // On-device and, thus, efficient.
   if (all_good_elems(s, tlvl)) return;
 
@@ -395,11 +396,56 @@ void check_print_abort_on_bad_elems (const std::string& label, const ElementsSta
   Kokkos::deep_copy(dp3d_h, s.m_dp3d);
   const auto phinh_i_h = Kokkos::create_mirror_view(s.m_phinh_i);
   Kokkos::deep_copy(phinh_i_h, s.m_phinh_i);
+  const auto sphere_latlon = Kokkos::create_mirror_view(geometry.m_sphere_latlon);
+  Kokkos::deep_copy(sphere_latlon, geometry.m_sphere_latlon);
 
   HostView<Real*****>
     vtheta_dp(reinterpret_cast<Real*>(&vtheta_dp_h(0,0,0,0,0)), nelem, ntl, NP, NP, NUM_LEV  *vecsz),
     dp3d     (reinterpret_cast<Real*>(&dp3d_h     (0,0,0,0,0)), nelem, ntl, NP, NP, NUM_LEV  *vecsz),
     phinh_i  (reinterpret_cast<Real*>(&phinh_i_h  (0,0,0,0,0)), nelem, ntl, NP, NP, NUM_LEV_P*vecsz);
+
+  bool first = true;
+  FILE* fid = nullptr;
+  std::string filename;
+  for (int ie = 0; ie < nelem; ++ie) {
+    for (int gi = 0; gi < NP; ++gi)
+      for (int gj = 0; gj < NP; ++gj) {
+        int k_bad = -1;
+        bool v = true, d = true, p = true;
+        for (int k = 0; k < nplev; ++k) {
+          v = vtheta_dp(ie,tlvl,gi,gj,k) < 0;
+          d = dp3d(ie,tlvl,gi,gj,k) < 0;
+          p = phinh_i(ie,tlvl,gi,gj,k) < phinh_i(ie,tlvl,gi,gj,k+1);
+          if (v || d || p) {
+            k_bad = k;
+            break;
+          }
+        }
+        if (k_bad >= 0) {
+          if (first) {
+            filename = std::string("hommexx.errlog.") + std::to_string(comm.rank());
+            fid = fopen(filename.c_str(), "w");
+            fprintf(fid, "label: %s time-level %d\n", label.c_str(), tlvl);
+            first = false;
+          }
+          fprintf(fid, "ie %d igll %d jgll %d lev %d\n", ie, gi, gj, k_bad);
+          fprintf(fid, "lat %22.15e lon %22.15e\n",
+                  sphere_latlon(ie,gi,gj,0), sphere_latlon(ie,gi,gj,1));
+          if (v) fprintf(fid, "vtheta_dp < 0\n");
+          if (d) fprintf(fid, "dp3d < 0\n");
+          if (p) fprintf(fid, "dphi > 0\n");
+          fprintf(fid, "level                   dphi                   dp3d              vtheta_dp\n");
+          for (int k = 0; k < nplev; ++k)
+            fprintf(fid, "%5d %22.15e %22.15e %22.15e\n",
+                    k, phinh_i(ie,tlvl,gi,gj,k+1) - phinh_i(ie,tlvl,gi,gj,k),
+                    dp3d(ie,tlvl,gi,gj,k), vtheta_dp(ie,tlvl,gi,gj,k));
+        }
+      }
+  }
+  if (fid) fclose(fid);
+
+  Errors::runtime_abort(std::string("Bad dphi, dp3d, or vtheta_dp; see ") + filename,
+                        Errors::err_bad_column_value);
 }
 
 } // namespace Homme

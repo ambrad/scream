@@ -88,8 +88,10 @@ private:
 
 // The primary purpose of this routine is to check state when you know it's
 // already bad and you need detailed information on the bad elements.
+class ElementsGeometry;
 void check_print_abort_on_bad_elems(const std::string& label,    // string to ID call site
                                     const ElementsState& state,
+                                    const ElementsGeometry& geometry,
                                     const int time_level);       // time level index in state arrays
 
 } // Homme
