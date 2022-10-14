@@ -382,12 +382,15 @@ static bool all_good_elems (const ElementsState& s, const int tlvl) {
   return nerr == 0;
 }
 
-void check_print_abort_on_bad_elems (const std::string& label, const ElementsState& s,
-                                     const ElementsGeometry& geometry, const int tlvl) {
+void check_print_abort_on_bad_elems (const std::string& label, const int tlvl,
+                                     const int error_code) {
+  const auto& s = Context::singleton().get<ElementsState>();
+  
   // On-device and, thus, efficient.
   if (all_good_elems(s, tlvl)) return;
 
   // Now that we know there is an error, we can do the rest inefficiently.
+  const auto& geometry = Context::singleton().get<ElementsGeometry>();
   const int nelem = s.num_elems();
   const int nplev = NUM_PHYSICAL_LEV, ntl = NUM_TIME_LEVELS, vecsz = VECTOR_SIZE;
   const auto& comm = Context::singleton().get<Connectivity>().get_comm();
@@ -428,7 +431,7 @@ void check_print_abort_on_bad_elems (const std::string& label, const ElementsSta
           if (first) {
             filename = std::string("hommexx.errlog.") + std::to_string(comm.rank());
             fid = fopen(filename.c_str(), "w");
-            fprintf(fid, "label: %s time-level %d\n", label.c_str(), tlvl);
+            fprintf(fid, "label: %s\ntime-level %d\n", label.c_str(), tlvl);
             first = false;
           }
           fprintf(fid, "lat %22.15e lon %22.15e\n",
@@ -449,7 +452,7 @@ void check_print_abort_on_bad_elems (const std::string& label, const ElementsSta
   if (fid) fclose(fid);
 
   Errors::runtime_abort(std::string("Bad dphi, dp3d, or vtheta_dp; see ") + filename,
-                        Errors::err_bad_column_value);
+                        error_code < 0 ? Errors::err_bad_column_value : error_code);
 }
 
 } // namespace Homme

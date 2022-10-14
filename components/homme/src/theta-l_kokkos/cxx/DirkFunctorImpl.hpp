@@ -406,8 +406,7 @@ struct DirkFunctorImpl {
       const int nt[] = {nm1, n0, np1};
       const char* ntname[] = {"nm1", "n0", "np1"};
       for (int i = 0; i < 3; ++i)
-        check_print_abort_on_bad_elems(std::string("DIRK Newton loop ") + ntname[i],
-                                       e.m_state, e.m_geometry, nt[i]);
+        check_print_abort_on_bad_elems(std::string("DIRK Newton loop ") + ntname[i], nt[i]);
     }
   }
 
