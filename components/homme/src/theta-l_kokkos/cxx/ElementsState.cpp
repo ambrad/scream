@@ -364,9 +364,11 @@ static bool all_good_elems (const ElementsState& s, const int tlvl) {
       const Real* const h = reinterpret_cast<const Real*>(&  phinh_i(ie,igp,jgp,0));
       // Write races but doesn't matter since any single nerr = 1 write is
       // sufficient to conclude there is a problem.
-      const auto f1 = [&] (const int k) { if (v[k] < 0)      nerr = 1; };
-      const auto f2 = [&] (const int k) { if (p[k] < 0)      nerr = 1; };
-      const auto f3 = [&] (const int k) { if (h[k] < h[k+1]) nerr = 1; };
+      const auto f1 = [&] (const int k) { if (v[k] < 0 || isnan(v[k])) nerr = 1; };
+      const auto f2 = [&] (const int k) { if (p[k] < 0 || isnan(p[k])) nerr = 1; };
+      // The isnan checks on k and k+1 are redundant except for the last k, but
+      // it's probably the fastest way to check all interface values.
+      const auto f3 = [&] (const int k) { if (h[k] < h[k+1] || isnan(h[k]) || isnan(h[k+1])) nerr = 1; };
       const auto tvr = Kokkos::ThreadVectorRange(team, nplev);
       parallel_for(tvr, f1);
       parallel_for(tvr, f2);
@@ -413,9 +415,10 @@ void check_print_abort_on_bad_elems (const std::string& label, const ElementsSta
         int k_bad = -1;
         bool v = true, d = true, p = true;
         for (int k = 0; k < nplev; ++k) {
-          v = vtheta_dp(ie,tlvl,gi,gj,k) < 0;
-          d = dp3d(ie,tlvl,gi,gj,k) < 0;
-          p = phinh_i(ie,tlvl,gi,gj,k) < phinh_i(ie,tlvl,gi,gj,k+1);
+          v = std::isnan(vtheta_dp(ie,tlvl,gi,gj,k)) || vtheta_dp(ie,tlvl,gi,gj,k) < 0;
+          d = std::isnan(dp3d(ie,tlvl,gi,gj,k)) || dp3d(ie,tlvl,gi,gj,k) < 0;
+          p = (std::isnan(phinh_i(ie,tlvl,gi,gj,k)) || std::isnan(phinh_i(ie,tlvl,gi,gj,k+1)) ||
+               phinh_i(ie,tlvl,gi,gj,k) < phinh_i(ie,tlvl,gi,gj,k+1));
           if (v || d || p) {
             k_bad = k;
             break;
@@ -428,12 +431,13 @@ void check_print_abort_on_bad_elems (const std::string& label, const ElementsSta
             fprintf(fid, "label: %s time-level %d\n", label.c_str(), tlvl);
             first = false;
           }
-          fprintf(fid, "ie %d igll %d jgll %d lev %d\n", ie, gi, gj, k_bad);
           fprintf(fid, "lat %22.15e lon %22.15e\n",
                   sphere_latlon(ie,gi,gj,0), sphere_latlon(ie,gi,gj,1));
-          if (v) fprintf(fid, "vtheta_dp < 0\n");
-          if (d) fprintf(fid, "dp3d < 0\n");
-          if (p) fprintf(fid, "dphi > 0\n");
+          fprintf(fid, "ie %d igll %d jgll %d lev %d:", ie, gi, gj, k_bad);
+          if (v) fprintf(fid, " bad vtheta_dp");
+          if (d) fprintf(fid, " bad dp3d");
+          if (p) fprintf(fid, " bad dphi");
+          fprintf(fid, "\n");
           fprintf(fid, "level                   dphi                   dp3d              vtheta_dp\n");
           for (int k = 0; k < nplev; ++k)
             fprintf(fid, "%5d %22.15e %22.15e %22.15e\n",
