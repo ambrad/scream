@@ -333,9 +333,12 @@ struct CaarFunctorImpl {
     profiling_resume();
 
     GPTLstart("caar compute");
-    Kokkos::parallel_for("caar loop pre-boundary exchange", m_policy_pre, *this);
+    int nerr;
+    Kokkos::parallel_reduce("caar loop pre-boundary exchange", m_policy_pre, *this, nerr);
     ExecSpace::impl_static_fence();
     GPTLstop("caar compute");
+    if (nerr > 0)
+      check_print_abort_on_bad_elems("CaarFunctorImpl::run TagPreExchange", data.n0);
 
     GPTLstart("caar_bexchV");
     m_bes[data.np1]->exchange(m_geometry.m_rspheremp);
@@ -358,7 +361,7 @@ struct CaarFunctorImpl {
   }
 
   KOKKOS_INLINE_FUNCTION
-  void operator()(const TagPreExchange&, const TeamMember &team) const {
+  void operator()(const TagPreExchange&, const TeamMember &team, int& nerr) const {
     // In this body, we use '====' to separate sync epochs (delimited by barriers)
     // Note: make sure the same temp is not used within each epoch!
 
@@ -371,7 +374,8 @@ struct CaarFunctorImpl {
     kv.team_barrier();
 
     // Computes pi, omega, and phi.
-    compute_scan_quantities(kv);
+    const bool ok = compute_scan_quantities(kv);
+    if ( ! ok) nerr = 1;
 
     if (m_rsplit==0 || !m_theta_hydrostatic_mode) {
       // ============ EPOCH 2.1 =========== //
@@ -597,7 +601,9 @@ struct CaarFunctorImpl {
   }
 
   KOKKOS_INLINE_FUNCTION
-  void compute_scan_quantities (KernelVariables &kv) const {
+  bool compute_scan_quantities (KernelVariables &kv) const {
+    bool ok = true;
+    
     kv.team_barrier();
     Kokkos::parallel_for(Kokkos::TeamThreadRange(kv.team,NP*NP),
                          [&](const int idx) {
@@ -675,11 +681,13 @@ struct CaarFunctorImpl {
                             Homme::subview(m_buffers.pnh,kv.team_idx,igp,jgp),
                             Homme::subview(m_state.m_phinh_i,kv.ie,m_data.n0,igp,jgp));
       } else {
+        const bool ok1 =
         m_eos.compute_pnh_and_exner(kv,
                                     Homme::subview(m_state.m_vtheta_dp,kv.ie,m_data.n0,igp,jgp),
                                     Homme::subview(m_state.m_phinh_i,kv.ie,m_data.n0,igp,jgp),
                                     Homme::subview(m_buffers.pnh,kv.team_idx,igp,jgp),
                                     Homme::subview(m_buffers.exner,kv.team_idx,igp,jgp));
+        if ( ! ok1) ok = false;
       }
 
       // Compute phi at midpoints
@@ -687,6 +695,7 @@ struct CaarFunctorImpl {
                                             Homme::subview(m_buffers.phi,kv.team_idx,igp,jgp));
     });
     kv.team_barrier();
+    return ok;
   }
 
   KOKKOS_INLINE_FUNCTION
