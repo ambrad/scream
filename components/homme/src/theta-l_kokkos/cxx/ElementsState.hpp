@@ -86,9 +86,12 @@ private:
   TeamUtils<ExecSpace> m_tu;
 };
 
-// The primary purpose of this routine is to check state when you know it's
-// already bad and you need detailed information on the bad elements.
-class ElementsGeometry;
+// Check ElementsState for NaN or incorrectly signed values. The initial check
+// is fast and on device. If everything is fine, the routine returns
+// immediately. If there is a bad value, a subsequent check is run on the host,
+// and this check prints detailed information to a file called
+// hommexx.errlog.${rank}. Then runtime_abort is called with a message pointing
+// to this file.
 void check_print_abort_on_bad_elems(const std::string& label,    // string to ID call site
                                     const int time_level,        // time level index in state arrays
                                     const int error_code = -1);

@@ -331,8 +331,9 @@ struct RemapFunctor : public Remapper {
       check_print_abort_on_bad_elems(
         "Vertical remap: Negative (or nan) layer thickness detected, aborting!",
         m_data.np1, Errors::err_negative_layer_thickness);
-      // If check_print_abort_on_bad_elems can't see the issue -- that is, if
-      // the source grid is bad but the state itself is fine -- it won't call
+      // If check_print_abort_on_bad_elems can't see the issue -- e.g., if the
+      // source grid is bad but the state itself is fine, or the routine has no
+      // implementation (as is true for preqx) -- it won't call
       // runtime_abort. Thus, for safety, call runtime_abort here if we're still
       // running.
       Errors::runtime_abort(

@@ -386,7 +386,7 @@ void check_print_abort_on_bad_elems (const std::string& label, const int tlvl,
                                      const int error_code) {
   const auto& s = Context::singleton().get<ElementsState>();
   
-  // On-device and, thus, efficient.
+  // On device and, thus, efficient.
   if (all_good_elems(s, tlvl)) return;
 
   // Now that we know there is an error, we can do the rest inefficiently.
@@ -451,7 +451,8 @@ void check_print_abort_on_bad_elems (const std::string& label, const int tlvl,
   }
   if (fid) fclose(fid);
 
-  Errors::runtime_abort(std::string("Bad dphi, dp3d, or vtheta_dp; see ") + filename,
+  Errors::runtime_abort(std::string("Bad dphi, dp3d, or vtheta_dp; label: '") +
+                        label + "'; see " + filename,
                         error_code < 0 ? Errors::err_bad_column_value : error_code);
 }
 
