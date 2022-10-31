@@ -1,0 +1,16 @@
+SET(NAME thetah-sl-test11conv-r0t1-cdr30-rrm)
+SET(TEST_NAME "${NAME}-cxx_vs_f90")
+
+SET(CXX_TEST_NAME "${NAME}-kokkos")
+
+message("-- Adding test: ${TEST_NAME}")
+
+CONFIGURE_FILE (${HOMME_SOURCE_DIR}/cmake/CxxVsF90.cmake.in
+  ${HOMME_BINARY_DIR}/tests/${CXX_TEST_NAME}/CxxVsF90.cmake @ONLY)
+
+ADD_TEST (NAME "${TEST_NAME}"
+  COMMAND ${CMAKE_COMMAND} -P CxxVsF90.cmake
+  WORKING_DIRECTORY ${HOMME_BINARY_DIR}/tests/${CXX_TEST_NAME})
+
+SET_TESTS_PROPERTIES(${TEST_NAME}
+  PROPERTIES DEPENDS "${NAME};${CXX_TEST_NAME}")
