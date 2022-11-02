@@ -48,7 +48,7 @@ void Functions<S,D>::diag_third_shoc_moments(
   linear_interp(team,zt_grid,zi_grid,thetal,thetal_zi,nlev,nlevi,0);
   team.team_barrier();
 
-  //Diagnose the third moment of the vertical-velocity
+  // Diagnose the third moment of the vertical velocity
   compute_diag_third_shoc_moment(team,nlev,nlevi,w_sec,thl_sec,wthl_sec,
                                  tke, dz_zt, dz_zi,isotropy_zi, brunt_zi,
                                  w_sec_zi,thetal_zi,w3);
@@ -56,6 +56,7 @@ void Functions<S,D>::diag_third_shoc_moments(
 
   // Perform clipping to prevent unrealistically large values from occuring
   clipping_diag_third_shoc_moments(team,nlevi,w_sec_zi,w3);
+  team.team_barrier();
 
   // Release temporary variables from the workspace
   workspace.template release_many_contiguous<4>(

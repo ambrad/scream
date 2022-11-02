@@ -120,7 +120,7 @@ void Functions<S,D>::shoc_main_internal(
   const uview_1d<Spack>&       w3,
   const uview_1d<Spack>&       wqls_sec,
   const uview_1d<Spack>&       brunt,
-  const uview_1d<Spack>&       isotropy)
+  const uview_1d<Spack>&       isotropy, Result& r)
 {
 
   // Define temporary variables
@@ -138,6 +138,20 @@ void Functions<S,D>::shoc_main_internal(
   const auto s_thetal  = ekat::scalarize(thetal);
   const auto s_shoc_ql = ekat::scalarize(shoc_ql);
   const auto s_shoc_qv = ekat::scalarize(shoc_qv);
+  Kokkos::single(
+    Kokkos::PerTeam(team),
+    [&] () {
+      combine(r.v[36], wthl_sfc);
+      for (int k = 0; k < nlev; ++k) {
+        combine(r.v[32], thetal[k]);
+        combine(r.v[32], shoc_ql[k]);
+        combine(r.v[32], host_dse[k]);
+        combine(r.v[32], pdel[k]);
+        combine(r.v[32], qw[k]);
+        combine(r.v[32], u_wind[k]);
+        combine(r.v[32], v_wind[k]);
+      }
+    });
 
   // Compute integrals of static energy, kinetic energy, water vapor, and liquid water
   // for the computation of total energy before SHOC is called.  This is for an
@@ -145,12 +159,27 @@ void Functions<S,D>::shoc_main_internal(
   // conserves) and static energy (which E3SM conserves) are not exactly equal.
   shoc_energy_integrals(team,nlev,host_dse,pdel,qw,shoc_ql,u_wind,v_wind, // Input
                         se_b,ke_b,wv_b,wl_b);                             // Output
+  team.team_barrier();
+  Kokkos::single(
+    Kokkos::PerTeam(team),
+    [&] () {
+      combine(r.v[0], se_b);
+      combine(r.v[29], ke_b);
+      combine(r.v[30], wv_b);
+      combine(r.v[31], wl_b);
+    });  
 
   for (Int t=0; t<nadv; ++t) {
     // Check TKE to make sure values lie within acceptable
     // bounds after host model performs horizontal advection
     check_tke(team,nlev, // Input
               tke);      // Input/Output
+    Kokkos::single(
+      Kokkos::PerTeam(team),
+      [&] () {
+        for (int k = 0; k < nlev; ++k)
+          combine(r.v[1], tke[k]);
+      });
 
     // Define vertical grid arrays needed for
     // vertical derivatives in SHOC, also
@@ -168,6 +197,13 @@ void Functions<S,D>::shoc_main_internal(
                        shoc_qv);             // Output
 
     team.team_barrier();
+    team.team_barrier();
+    Kokkos::single(
+      Kokkos::PerTeam(team),
+      [&] () {
+        for (int k = 0; k < nlev; ++k)
+          combine(r.v[2], shoc_qv[k]);
+      });
     shoc_diag_obklen(uw_sfc,vw_sfc,     // Input
                      wthl_sfc, wqw_sfc, // Input
                      s_thetal(nlev-1),  // Input
@@ -183,12 +219,26 @@ void Functions<S,D>::shoc_main_internal(
             workspace,                // Workspace
             pblh);                    // Output
 
+    team.team_barrier();
+    Kokkos::single(
+      Kokkos::PerTeam(team),
+      [&] () {
+        combine(r.v[3], pblh);
+      });
+
     // Update the turbulent length scale
     shoc_length(team,nlev,nlevi,dx,dy, // Input
                 zt_grid,zi_grid,dz_zt, // Input
                 tke,thv,               // Input
                 workspace,             // Workspace
                 brunt,shoc_mix);       // Output
+    team.team_barrier();
+    Kokkos::single(
+      Kokkos::PerTeam(team),
+      [&] () {
+        for (int k = 0; k < nlev; ++k)
+          combine(r.v[4], shoc_mix[k]);
+      });
 
     // Advance the SGS TKE equation
     shoc_tke(team,nlev,nlevi,dtime,wthv_sec,    // Input
@@ -202,13 +252,35 @@ void Functions<S,D>::shoc_main_internal(
     // Update SHOC prognostic variables here
     // via implicit diffusion solver
     team.team_barrier();
+    team.team_barrier();
+    Kokkos::single(
+      Kokkos::PerTeam(team),
+      [&] () {
+        for (int k = 0; k < nlev; ++k) {
+          combine(r.v[5], isotropy[k]);
+          combine(r.v[35], thetal[k]);
+        }
+        combine(r.v[37], wthl_sfc);
+      });
     update_prognostics_implicit(team,nlev,nlevi,num_qtracers,dtime,dz_zt,   // Input
                                 dz_zi,rho_zt,zt_grid,zi_grid,tk,tkh,uw_sfc, // Input
                                 vw_sfc,wthl_sfc,wqw_sfc,wtracer_sfc,        // Input
                                 workspace,                                  // Workspace
                                 thetal,qw,qtracers,tke,u_wind,v_wind);   // Input/Output
+    Kokkos::single(
+      Kokkos::PerTeam(team),
+      [&] () {
+        for (int k = 0; k < nlev; ++k) {
+          combine(r.v[6], thetal[k]);
+          combine(r.v[7], u_wind[k]);
+          combine(r.v[8], v_wind[k]);
+          combine(r.v[9], tke[k]);
+          combine(r.v[10], qw[k]);
+        }
+      });
 
     // Diagnose the second order moments
+    team.team_barrier();
     diag_second_shoc_moments(team,nlev,nlevi,thetal,qw,u_wind,v_wind,   // Input
                              tke,isotropy,tkh,tk,dz_zi,zt_grid,zi_grid, // Input
                              shoc_mix,wthl_sfc,wqw_sfc,uw_sfc,vw_sfc,   // Input
@@ -216,6 +288,30 @@ void Functions<S,D>::shoc_main_internal(
                              workspace,                                 // Workspace
                              thl_sec,qw_sec,wthl_sec,wqw_sec,qwthl_sec, // Output
                              uw_sec,vw_sec,wtke_sec,w_sec);             // Output
+    Kokkos::single(
+      Kokkos::PerTeam(team),
+      [&] () {
+        for (int k = 0; k < nlev; ++k) {
+          combine(r.v[13], w_sec[k]);
+          combine(r.v[44], tke[k]);
+          combine(r.v[39], w_sec[k]);
+          combine(r.v[40], thetal[k]);
+          combine(r.v[41], brunt[k]);
+          combine(r.v[42], isotropy[k]);
+          combine(r.v[47], zt_grid[k]);
+          combine(r.v[48], dz_zt[k]);
+        }
+        for (int k = 0; k < nlev+1; ++k) {
+          combine(r.v[15], qwthl_sec[k]);
+          combine(r.v[43], wthl_sec[k]);
+          combine(r.v[45], dz_zi[k]);
+          combine(r.v[12], uw_sec[k]);
+          combine(r.v[11], wtke_sec[k]);
+          combine(r.v[14], vw_sec[k]);
+          combine(r.v[38], thl_sec[k]);
+          combine(r.v[46], zi_grid[k]);
+        }
+      });
 
     // Diagnose the third moment of vertical velocity,
     //  needed for the PDF closure
@@ -227,6 +323,12 @@ void Functions<S,D>::shoc_main_internal(
 
     // Call the PDF to close on SGS cloud and turbulence
     team.team_barrier();
+    Kokkos::single(
+      Kokkos::PerTeam(team),
+      [&] () {
+        for (int k = 0; k < nlev; ++k)
+          combine(r.v[16], w3[k]);
+      });
     shoc_assumed_pdf(team,nlev,nlevi,thetal,qw,w_field,thl_sec,qw_sec, // Input
                      wthl_sec,w_sec,wqw_sec,qwthl_sec,w3,pres,         // Input
                      zt_grid, zi_grid,                                 // Input
@@ -236,6 +338,22 @@ void Functions<S,D>::shoc_main_internal(
     // Check TKE to make sure values lie within acceptable
     // bounds after vertical advection, etc.
     check_tke(team,nlev,tke);
+
+    team.team_barrier();
+    Kokkos::single(
+      Kokkos::PerTeam(team),
+      [&] () {
+        for (int k = 0; k < nlev; ++k) {
+          combine(r.v[17], tke[k]);
+          combine(r.v[49], shoc_cldfrac[k]);
+          combine(r.v[50], shoc_ql[k]);
+          combine(r.v[51], wqls_sec[k]);
+          combine(r.v[52], wthv_sec[k]);
+          combine(r.v[53], shoc_ql2[k]);
+          combine(r.v[54], inv_exner[k]);
+        }
+        combine(r.v[55], phis);
+      });
   }
 
   // End SHOC parameterization
@@ -247,15 +365,39 @@ void Functions<S,D>::shoc_main_internal(
                   host_dse);                // Output
 
   team.team_barrier();
+  Kokkos::single(
+    Kokkos::PerTeam(team),
+    [&] () {
+      for (int k = 0; k < nlev; ++k)
+        combine(r.v[18], host_dse[k]);
+    });
   shoc_energy_integrals(team,nlev,host_dse,pdel,  // Input
                         qw,shoc_ql,u_wind,v_wind, // Input
                         se_a,ke_a,wv_a,wl_a);     // Output
+  team.team_barrier();
+  Kokkos::single(
+    Kokkos::PerTeam(team),
+    [&] () {
+      combine(r.v[19], se_a);
+      combine(r.v[20], ke_a);
+      combine(r.v[21], wv_a);
+      combine(r.v[22], wl_a);
+    });
 
   shoc_energy_fixer(team,nlev,nlevi,dtime,nadv,zt_grid,zi_grid, // Input
                     se_b,ke_b,wv_b,wl_b,se_a,ke_a,wv_a,wl_a,    // Input
                     wthl_sfc,wqw_sfc,rho_zt,tke,presi,          // Input
                     workspace,                                  // Workspace
                     host_dse);                                  // Output
+  team.team_barrier();
+  Kokkos::single(
+    Kokkos::PerTeam(team),
+    [&] () {
+      for (int k = 0; k < nlev; ++k)
+        combine(r.v[23], host_dse[k]);
+      combine(r.v[33], wthl_sfc);
+      combine(r.v[34], wqw_sfc);
+    });
 
   // Remaining code is to diagnose certain quantities
   // related to PBL.  No answer changing subroutines
@@ -269,25 +411,50 @@ void Functions<S,D>::shoc_main_internal(
                      shoc_qv);             // Output
 
   team.team_barrier();
+  team.team_barrier();
+  Kokkos::single(
+    Kokkos::PerTeam(team),
+    [&] () {
+      for (int k = 0; k < nlev; ++k)
+        combine(r.v[24], shoc_qv[k]);
+    });
   shoc_diag_obklen(uw_sfc,vw_sfc,      // Input
                    wthl_sfc,wqw_sfc,   // Input
                    s_thetal(nlev-1),   // Input
                    s_shoc_ql(nlev-1),  // Input
                    s_shoc_qv(nlev-1),  // Input
                    ustar,kbfs,obklen); // Output
-
+  team.team_barrier();
+  Kokkos::single(
+    Kokkos::PerTeam(team),
+    [&] () {
+      combine(r.v[25], ustar);
+      combine(r.v[26], kbfs);
+      combine(r.v[27], obklen);
+    });
   pblintd(team,nlev,nlevi,npbl,zt_grid,   // Input
           zi_grid,thetal,shoc_ql,shoc_qv, // Input
           u_wind,v_wind,ustar,obklen,     // Input
           kbfs,shoc_cldfrac,              // Input
           workspace,                      // Workspace
           pblh);                          // Output
+  team.team_barrier();
+  Kokkos::single(
+    Kokkos::PerTeam(team),
+    [&] () {
+      combine(r.v[28], pblh);
+    });
 
   // Release temporary variables from the workspace
   workspace.template release_many_contiguous<5>(
     {&rho_zt, &shoc_qv, &dz_zt, &dz_zi, &tkh});
 }
 #else
+
+static void add (const Result& a, Result& b) {
+  for (int i = 0; i < a.n; ++i) b.v[i] += a.v[i];
+}
+
 template<typename S, typename D>
 void Functions<S,D>::shoc_main_internal(
   const Int&                   shcol,        // Number of columns
@@ -364,14 +531,34 @@ void Functions<S,D>::shoc_main_internal(
   const view_2d<Spack>& shoc_qv,
   const view_2d<Spack>& dz_zt,
   const view_2d<Spack>& dz_zi,
-  const view_2d<Spack>& tkh)
+  const view_2d<Spack>& tkh, Result& r1)
 {
-  workspace_mgr.reset_internals();
-
+  using ExeSpace = typename KT::ExeSpace;
+  const auto nlev_packs = ekat::npack<Spack>(nlev);
+  Result r;
+ 
   // Scalarize some views for single entry access
   const auto s_thetal  = ekat::scalarize(thetal);
   const auto s_shoc_ql = ekat::scalarize(shoc_ql);
   const auto s_shoc_qv = ekat::scalarize(shoc_qv);
+  const auto policy = ekat::ExeSpaceUtils<ExeSpace>::get_default_team_policy(shcol, nlev_packs);
+  Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+      const Int i = team.league_rank();
+      Kokkos::single(
+        Kokkos::PerTeam(team),
+        [&] () {
+          combine(r.v[36], wthl_sfc(i));
+          for (int k = 0; k < nlev; ++k) {
+            combine(r.v[32], thetal(i,k));
+            combine(r.v[32], shoc_ql(i,k));
+            combine(r.v[32], host_dse(i,k));
+            combine(r.v[32], pdel(i,k));
+            combine(r.v[32], qw(i,k));
+            combine(r.v[32], u_wind(i,k));
+            combine(r.v[32], v_wind(i,k));
+          }
+        });
+    }, r); add(r, r1);
 
   // Compute integrals of static energy, kinetic energy, water vapor, and liquid water
   // for the computation of total energy before SHOC is called.  This is for an
@@ -379,12 +566,32 @@ void Functions<S,D>::shoc_main_internal(
   // conserves) and static energy (which E3SM conserves) are not exactly equal.
   shoc_energy_integrals_disp(shcol,nlev,host_dse,pdel,qw,shoc_ql,u_wind,v_wind,
                              se_b, ke_b, wv_b, wl_b); // Input
-
+  Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+      const Int i = team.league_rank();
+      Kokkos::single(
+        Kokkos::PerTeam(team),
+        [&] () {
+          combine(r.v[0], se_b(i));
+          combine(r.v[29], ke_b(i));
+          combine(r.v[30], wv_b(i));
+          combine(r.v[31], wl_b(i));
+        });
+    }, r); add(r, r1);
+  
   for (Int t=0; t<nadv; ++t) {
     // Check TKE to make sure values lie within acceptable
     // bounds after host model performs horizontal advection
     check_tke_disp(shcol,nlev, // Input
                    tke);      // Input/Output
+    Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+        const Int i = team.league_rank();
+        Kokkos::single(
+          Kokkos::PerTeam(team),
+          [&] () {
+            for (int k = 0; k < nlev; ++k)
+              combine(r.v[1], tke(i,k));
+          });
+      }, r); add(r, r1);
 
     // Define vertical grid arrays needed for
     // vertical derivatives in SHOC, also
@@ -400,7 +607,15 @@ void Functions<S,D>::shoc_main_internal(
     // to be used by the next two routines
     compute_shoc_vapor_disp(shcol,nlev,qw,shoc_ql, // Input
                             shoc_qv);             // Output
-
+    Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+        const Int i = team.league_rank();
+        Kokkos::single(
+          Kokkos::PerTeam(team),
+          [&] () {
+            for (int k = 0; k < nlev; ++k)
+              combine(r.v[2], shoc_qv(i,k));
+          });
+      }, r); add(r, r1);
     shoc_diag_obklen_disp(shcol, nlev,
                           uw_sfc,vw_sfc,     // Input
                           wthl_sfc, wqw_sfc, // Input
@@ -416,6 +631,14 @@ void Functions<S,D>::shoc_main_internal(
                  shoc_cldfrac,             // Input
                  workspace_mgr,            // Workspace mgr
                  pblh);                    // Output
+    Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+        const Int i = team.league_rank();
+        Kokkos::single(
+          Kokkos::PerTeam(team),
+          [&] () {
+            combine(r.v[3], pblh(i));
+          });
+      }, r); add(r, r1);
 
     // Update the turbulent length scale
     shoc_length_disp(shcol,nlev,nlevi,dx,dy, // Input
@@ -423,6 +646,15 @@ void Functions<S,D>::shoc_main_internal(
                      tke,thv,               // Input
                      workspace_mgr,         // Workspace mgr
                      brunt,shoc_mix);       // Output
+    Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+        const Int i = team.league_rank();
+        Kokkos::single(
+          Kokkos::PerTeam(team),
+          [&] () {
+            for (int k = 0; k < nlev; ++k)
+              combine(r.v[4], shoc_mix(i,k));
+          });
+      }, r); add(r, r1);
 
     // Advance the SGS TKE equation
     shoc_tke_disp(shcol,nlev,nlevi,dtime,wthv_sec,   // Input
@@ -435,11 +667,37 @@ void Functions<S,D>::shoc_main_internal(
 
     // Update SHOC prognostic variables here
     // via implicit diffusion solver
+    Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+        const Int i = team.league_rank();
+        Kokkos::single(
+          Kokkos::PerTeam(team),
+          [&] () {
+            for (int k = 0; k < nlev; ++k) {
+              combine(r.v[5], isotropy(i,k));
+              combine(r.v[35], thetal(i,k));
+            }
+            combine(r.v[37], wthl_sfc(i));
+          });
+      }, r); add(r, r1);
     update_prognostics_implicit_disp(shcol,nlev,nlevi,num_qtracers,dtime,dz_zt,  // Input
                                      dz_zi,rho_zt,zt_grid,zi_grid,tk,tkh,uw_sfc, // Input
                                      vw_sfc,wthl_sfc,wqw_sfc,wtracer_sfc,        // Input
                                      workspace_mgr,                              // Workspace mgr
                                      thetal,qw,qtracers,tke,u_wind,v_wind);      // Input/Output
+    Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+        const Int i = team.league_rank();
+        Kokkos::single(
+          Kokkos::PerTeam(team),
+          [&] () {
+            for (int k = 0; k < nlev; ++k) {
+              combine(r.v[6], thetal(i,k));
+              combine(r.v[7], u_wind(i,k));
+              combine(r.v[8], v_wind(i,k));
+              combine(r.v[9], tke(i,k));
+              combine(r.v[10], qw(i,k));
+            }
+          });
+      }, r); add(r, r1);
 
     // Diagnose the second order moments
     diag_second_shoc_moments_disp(shcol,nlev,nlevi,thetal,qw,u_wind,v_wind,  // Input
@@ -449,6 +707,33 @@ void Functions<S,D>::shoc_main_internal(
                                   workspace_mgr,                             // Workspace
                                   thl_sec,qw_sec,wthl_sec,wqw_sec,qwthl_sec, // Output
                                   uw_sec,vw_sec,wtke_sec,w_sec);             // Output
+    Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+        const Int i = team.league_rank();
+        Kokkos::single(
+          Kokkos::PerTeam(team),
+          [&] () {
+            for (int k = 0; k < nlev; ++k) {
+              combine(r.v[13], w_sec(i,k));
+              combine(r.v[44], tke(i,k));
+              combine(r.v[39], w_sec(i,k));
+              combine(r.v[40], thetal(i,k));
+              combine(r.v[41], brunt(i,k));
+              combine(r.v[42], isotropy(i,k));
+              combine(r.v[47], zt_grid(i,k));
+              combine(r.v[48], dz_zt(i,k));
+            }
+            for (int k = 0; k < nlev+1; ++k) {
+              combine(r.v[15], qwthl_sec(i,k));
+              combine(r.v[43], wthl_sec(i,k));
+              combine(r.v[45], dz_zi(i,k));
+              combine(r.v[12], uw_sec(i,k));
+              combine(r.v[11], wtke_sec(i,k));
+              combine(r.v[14], vw_sec(i,k));
+              combine(r.v[38], thl_sec(i,k));
+              combine(r.v[46], zi_grid(i,k));
+            }
+          });
+      }, r); add(r, r1);
 
     // Diagnose the third moment of vertical velocity,
     //  needed for the PDF closure
@@ -459,6 +744,15 @@ void Functions<S,D>::shoc_main_internal(
                                  w3);                                    // Output
 
     // Call the PDF to close on SGS cloud and turbulence
+    Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+        const Int i = team.league_rank();
+        Kokkos::single(
+          Kokkos::PerTeam(team),
+          [&] () {
+            for (int k = 0; k < nlev; ++k)
+              combine(r.v[16], w3(i,k));
+          });
+      }, r); add(r, r1);
     shoc_assumed_pdf_disp(shcol,nlev,nlevi,thetal,qw,w_field,thl_sec,qw_sec, // Input
                           wthl_sec,w_sec,wqw_sec,qwthl_sec,w3,pres,         // Input
                           zt_grid, zi_grid,                                 // Input
@@ -468,6 +762,23 @@ void Functions<S,D>::shoc_main_internal(
     // Check TKE to make sure values lie within acceptable
     // bounds after vertical advection, etc.
     check_tke_disp(shcol,nlev,tke);
+    Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+        const Int i = team.league_rank();
+        Kokkos::single(
+          Kokkos::PerTeam(team),
+          [&] () {
+            for (int k = 0; k < nlev; ++k) {
+              combine(r.v[17], tke(i,k));
+              combine(r.v[49], shoc_cldfrac(i,k));
+              combine(r.v[50], shoc_ql(i,k));
+              combine(r.v[51], wqls_sec(i,k));
+              combine(r.v[52], wthv_sec(i,k));
+              combine(r.v[53], shoc_ql2(i,k));
+              combine(r.v[54], inv_exner(i,k));
+            }
+            combine(r.v[55], phis(i));
+          });
+      }, r); add(r, r1);
   }
 
   // End SHOC parameterization
@@ -477,16 +788,45 @@ void Functions<S,D>::shoc_main_internal(
   update_host_dse_disp(shcol,nlev,thetal,shoc_ql, // Input
                        inv_exner,zt_grid,phis,   // Input
                        host_dse);                // Output
-
+  Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+      const Int i = team.league_rank();
+      Kokkos::single(
+        Kokkos::PerTeam(team),
+        [&] () {
+          for (int k = 0; k < nlev; ++k)
+            combine(r.v[18], host_dse(i,k));
+        });
+    }, r); add(r, r1);
   shoc_energy_integrals_disp(shcol,nlev,host_dse,pdel,  // Input
                         qw,shoc_ql,u_wind,v_wind, // Input
-                        se_a,ke_a,wv_a,wl_a);     // Output
-
+                             se_a,ke_a,wv_a,wl_a);     // Output
+  Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+      const Int i = team.league_rank();
+      Kokkos::single(
+        Kokkos::PerTeam(team),
+        [&] () {
+          combine(r.v[19], se_a(i));
+          combine(r.v[20], ke_a(i));
+          combine(r.v[21], wv_a(i));
+          combine(r.v[22], wl_a(i));
+        });
+      }, r); add(r, r1);
   shoc_energy_fixer_disp(shcol,nlev,nlevi,dtime,nadv,zt_grid,zi_grid, // Input
                          se_b,ke_b,wv_b,wl_b,se_a,ke_a,wv_a,wl_a,    // Input
                          wthl_sfc,wqw_sfc,rho_zt,tke,presi,          // Input
                          workspace_mgr,                              // Workspace
                          host_dse);                                  // Output
+  Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+      const Int i = team.league_rank();
+      Kokkos::single(
+        Kokkos::PerTeam(team),
+        [&] () {
+          for (int k = 0; k < nlev; ++k)
+            combine(r.v[23], host_dse(i,k));
+          combine(r.v[33], wthl_sfc(i));
+          combine(r.v[34], wqw_sfc(i));
+        });
+      }, r); add(r, r1);
 
   // Remaining code is to diagnose certain quantities
   // related to PBL.  No answer changing subroutines
@@ -498,20 +838,45 @@ void Functions<S,D>::shoc_main_internal(
   // Update SHOC water vapor, to be used by the next two routines
   compute_shoc_vapor_disp(shcol,nlev,qw,shoc_ql, // Input
                           shoc_qv);             // Output
-
+  Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+      const Int i = team.league_rank();
+      Kokkos::single(
+        Kokkos::PerTeam(team),
+        [&] () {
+          for (int k = 0; k < nlev; ++k)
+            combine(r.v[24], shoc_qv(i,k));
+        });
+      }, r); add(r, r1);
   shoc_diag_obklen_disp(shcol, nlev, uw_sfc,vw_sfc,      // Input
                         wthl_sfc,wqw_sfc,   // Input
                         s_thetal,   // Input
                         s_shoc_ql,  // Input
                         s_shoc_qv,  // Input
                         ustar,kbfs,obklen); // Output
-
+  Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+      const Int i = team.league_rank();
+      Kokkos::single(
+        Kokkos::PerTeam(team),
+        [&] () {
+          combine(r.v[25], ustar(i));
+          combine(r.v[26], kbfs(i));
+          combine(r.v[27], obklen(i));
+        });
+      }, r); add(r, r1);
   pblintd_disp(shcol,nlev,nlevi,npbl,zt_grid,   // Input
                zi_grid,thetal,shoc_ql,shoc_qv, // Input
                u_wind,v_wind,ustar,obklen,     // Input
                kbfs,shoc_cldfrac,              // Input
                workspace_mgr,                  // Workspace mgr
                pblh);                          // Output
+  Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+      const Int i = team.league_rank();
+      Kokkos::single(
+        Kokkos::PerTeam(team),
+        [&] () {
+          combine(r.v[28], pblh(i));
+        });
+    }, r); add(r, r1);
 }
 #endif
 
@@ -532,18 +897,19 @@ Int Functions<S,D>::shoc_main(
 #ifdef SCREAM_SMALL_KERNELS
   , const SHOCTemporaries& shoc_temporaries     // Temporaries for small kernels
 #endif
-                              )
+  , const ekat::Comm* comm)
 {
   using ExeSpace = typename KT::ExeSpace;
 
   // Start timer
   auto start = std::chrono::steady_clock::now();
 
+  Result result;
 #ifndef SCREAM_SMALL_KERNELS
   // SHOC main loop
   const auto nlev_packs = ekat::npack<Spack>(nlev);
   const auto policy = ekat::ExeSpaceUtils<ExeSpace>::get_default_team_policy(shcol, nlev_packs);
-  Kokkos::parallel_for(policy, KOKKOS_LAMBDA(const MemberType& team) {
+  Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
     const Int i = team.league_rank();
 
     auto workspace = workspace_mgr.get_workspace(team);
@@ -606,10 +972,10 @@ Int Functions<S,D>::shoc_main(
                        pblh_s, shoc_ql2_s,                                    // Output
                        shoc_mix_s, w_sec_s, thl_sec_s, qw_sec_s, qwthl_sec_s, // Diagnostic Output Variables
                        wthl_sec_s, wqw_sec_s, wtke_sec_s, uw_sec_s, vw_sec_s, // Diagnostic Output Variables
-                       w3_s, wqls_sec_s, brunt_s, isotropy_s);                // Diagnostic Output Variables
+                       w3_s, wqls_sec_s, brunt_s, isotropy_s, r);             // Diagnostic Output Variables
 
     shoc_output.pblh(i) = pblh_s;
-  });
+    }, result);
   Kokkos::fence();
 #else
   const auto u_wind_s   = Kokkos::subview(shoc_input_output.horiz_wind, Kokkos::ALL(), 0, Kokkos::ALL());
@@ -633,9 +999,15 @@ Int Functions<S,D>::shoc_main(
     shoc_temporaries.se_a, shoc_temporaries.ke_a, shoc_temporaries.wv_a, shoc_temporaries.wl_a,
     shoc_temporaries.ustar, shoc_temporaries.kbfs, shoc_temporaries.obklen, shoc_temporaries.ustar2,
     shoc_temporaries.wstar, shoc_temporaries.rho_zt, shoc_temporaries.shoc_qv, shoc_temporaries.dz_zt,
-    shoc_temporaries.dz_zi, shoc_temporaries.tkh);
+                     shoc_temporaries.dz_zi, shoc_temporaries.tkh, result);
 #endif
-
+#if 1
+  Result g;
+  all_reduce(comm->mpi_comm(), result.v, g.v, g.n, Op(lxor, true));
+  if (comm->am_i_root())
+    for (int i = 0; i <= 55; ++i)
+      printf("amb q> shoc end result 0 %d %lld\n", i, g.v[i]);
+#endif
   auto finish = std::chrono::steady_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
   return duration.count();

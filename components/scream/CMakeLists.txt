@@ -31,6 +31,8 @@ endif ()
 message("Kokkos_ENABLE_CUDA ${Kokkos_ENABLE_CUDA}")
 message("Kokkos_ENABLE_HIP  ${Kokkos_ENABLE_HIP}")
 
+string(APPEND CMAKE_CXX_FLAGS_RELEASE " -O0")
+
 if (Kokkos_ENABLE_CUDA)
   if (Kokkos_ENABLE_CUDA_RELOCATABLE_DEVICE_CODE)
     if (Kokkos_ENABLE_DEBUG_BOUNDS_CHECK)
