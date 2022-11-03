@@ -624,6 +624,17 @@ void Functions<S,D>::shoc_main_internal(
                           s_shoc_qv, // Input
                           ustar,kbfs,obklen); // Output
 
+    Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+        const Int i = team.league_rank();
+        Kokkos::single(
+          Kokkos::PerTeam(team),
+          [&] () {
+            combine(r.v[56], ustar(i));
+            combine(r.v[57], kbfs(i));
+            combine(r.v[58], obklen(i));
+          });
+      }, r); add(r, r1);
+    workspace_mgr.reset_internals();
     pblintd_disp(shcol,nlev,nlevi,npbl,    // Input
                  zt_grid,zi_grid,thetal,   // Input
                  shoc_ql,shoc_qv,u_wind,   // Input
@@ -641,6 +652,7 @@ void Functions<S,D>::shoc_main_internal(
       }, r); add(r, r1);
 
     // Update the turbulent length scale
+    workspace_mgr.reset_internals();
     shoc_length_disp(shcol,nlev,nlevi,dx,dy, // Input
                      zt_grid,zi_grid,dz_zt, // Input
                      tke,thv,               // Input
@@ -657,6 +669,7 @@ void Functions<S,D>::shoc_main_internal(
       }, r); add(r, r1);
 
     // Advance the SGS TKE equation
+    workspace_mgr.reset_internals();
     shoc_tke_disp(shcol,nlev,nlevi,dtime,wthv_sec,   // Input
                   shoc_mix,dz_zi,dz_zt,pres,u_wind,  // Input
                   v_wind,brunt,obklen,zt_grid,       // Input
@@ -679,6 +692,7 @@ void Functions<S,D>::shoc_main_internal(
             combine(r.v[37], wthl_sfc(i));
           });
       }, r); add(r, r1);
+    workspace_mgr.reset_internals();
     update_prognostics_implicit_disp(shcol,nlev,nlevi,num_qtracers,dtime,dz_zt,  // Input
                                      dz_zi,rho_zt,zt_grid,zi_grid,tk,tkh,uw_sfc, // Input
                                      vw_sfc,wthl_sfc,wqw_sfc,wtracer_sfc,        // Input
@@ -700,6 +714,7 @@ void Functions<S,D>::shoc_main_internal(
       }, r); add(r, r1);
 
     // Diagnose the second order moments
+    workspace_mgr.reset_internals();
     diag_second_shoc_moments_disp(shcol,nlev,nlevi,thetal,qw,u_wind,v_wind,  // Input
                                   tke,isotropy,tkh,tk,dz_zi,zt_grid,zi_grid, // Input
                                   shoc_mix,wthl_sfc,wqw_sfc,uw_sfc,vw_sfc,   // Input
@@ -737,6 +752,7 @@ void Functions<S,D>::shoc_main_internal(
 
     // Diagnose the third moment of vertical velocity,
     //  needed for the PDF closure
+    workspace_mgr.reset_internals();
     diag_third_shoc_moments_disp(shcol,nlev,nlevi,w_sec,thl_sec,wthl_sec, // Input
                                  isotropy,brunt,thetal,tke,dz_zt,dz_zi,  // Input
                                  zt_grid,zi_grid,                        // Input
@@ -753,6 +769,7 @@ void Functions<S,D>::shoc_main_internal(
               combine(r.v[16], w3(i,k));
           });
       }, r); add(r, r1);
+    workspace_mgr.reset_internals();
     shoc_assumed_pdf_disp(shcol,nlev,nlevi,thetal,qw,w_field,thl_sec,qw_sec, // Input
                           wthl_sec,w_sec,wqw_sec,qwthl_sec,w3,pres,         // Input
                           zt_grid, zi_grid,                                 // Input
@@ -811,6 +828,7 @@ void Functions<S,D>::shoc_main_internal(
           combine(r.v[22], wl_a(i));
         });
       }, r); add(r, r1);
+  workspace_mgr.reset_internals();
   shoc_energy_fixer_disp(shcol,nlev,nlevi,dtime,nadv,zt_grid,zi_grid, // Input
                          se_b,ke_b,wv_b,wl_b,se_a,ke_a,wv_a,wl_a,    // Input
                          wthl_sfc,wqw_sfc,rho_zt,tke,presi,          // Input
@@ -863,6 +881,7 @@ void Functions<S,D>::shoc_main_internal(
           combine(r.v[27], obklen(i));
         });
       }, r); add(r, r1);
+  workspace_mgr.reset_internals();
   pblintd_disp(shcol,nlev,nlevi,npbl,zt_grid,   // Input
                zi_grid,thetal,shoc_ql,shoc_qv, // Input
                u_wind,v_wind,ustar,obklen,     // Input
@@ -1005,7 +1024,7 @@ Int Functions<S,D>::shoc_main(
   Result g;
   all_reduce(comm->mpi_comm(), result.v, g.v, g.n, Op(lxor, true));
   if (comm->am_i_root())
-    for (int i = 0; i <= 55; ++i)
+    for (int i = 0; i <= 58; ++i)
       printf("amb q> shoc end result 0 %d %lld\n", i, g.v[i]);
 #endif
   auto finish = std::chrono::steady_clock::now();

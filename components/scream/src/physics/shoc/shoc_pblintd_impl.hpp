@@ -56,7 +56,7 @@ void Functions<S,D>::pblintd(
   const Scalar&                kbfs,
   const uview_1d<const Spack>& cldn,
   const Workspace&             workspace,
-  Scalar&                      pblh)
+  Scalar&                      pblh_)
 {
   // Define temporary variables
   uview_1d<Spack> rino, thv;
@@ -79,7 +79,7 @@ void Functions<S,D>::pblintd(
   // Initialize
   bool check = true;
   s_rino(nlev-1) = 0;
-  pblh = s_z(nlev-1);
+  auto pblh = s_z(nlev-1);
 
   // PBL height calculation
   team.team_barrier();
@@ -103,6 +103,8 @@ void Functions<S,D>::pblintd(
 
   // PBL check over ocean
   shoc_pblintd_cldcheck(s_zi(nlev-1),s_cldn(nlev-1),pblh);
+
+  pblh_ = pblh;
 
   // Release temporary variables from the workspace
   workspace.template release_many_contiguous<2>(
