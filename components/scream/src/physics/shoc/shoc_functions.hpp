@@ -21,7 +21,7 @@ KOKKOS_INLINE_FUNCTION void combine (LongLong& a, const T& b) {
 }
 
 struct Result {
-  static const int n = 64;
+  static const int n = 80;
   LongLong v[n];
   KOKKOS_INLINE_FUNCTION Result () { for (int i = 0; i < n; ++i) v[i] = 0; }
   KOKKOS_INLINE_FUNCTION Result& operator+= (const Result& r) {

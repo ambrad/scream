@@ -20,6 +20,7 @@ void Functions<S,D>::compute_brunt_shoc_length(
   const auto ggr = C::gravit;
   const auto s_thv_zi = scalarize(thv_zi);
 
+#if 0
   const Int nlev_pack = ekat::npack<Spack>(nlev);
   Kokkos::parallel_for(Kokkos::TeamThreadRange(team, nlev_pack), [&] (const Int& k) {
     // Calculate thv_zi shift
@@ -31,6 +32,14 @@ void Functions<S,D>::compute_brunt_shoc_length(
 
     brunt(k) = (ggr/thv(k))*(thv_zi_k-thv_zi_kp1)/dz_zt(k);
   });
+#else
+  const auto brunt_s = scalarize(brunt);
+  const auto thv_s = scalarize(thv);
+  const auto dz_zt_s = scalarize(dz_zt);
+  Kokkos::parallel_for(Kokkos::TeamThreadRange(team, nlev), [&] (const Int& k) {
+    brunt_s(k) = (ggr/thv_s(k))*(s_thv_zi(k)-s_thv_zi(k+1))/dz_zt_s(k);
+  });
+#endif
 }
 
 } // namespace shoc

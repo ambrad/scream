@@ -25,7 +25,8 @@ void Functions<S,D>
   const uview_1d<Spack>&       shoc_mix)
 {
   // Define temporary variable
-  auto thv_zi = workspace.take("thv_zi");
+  //auto thv_zi = workspace.take("thv_zi");
+  uview_1d<Spack> thv_zi; workspace.template take_many_contiguous_unsafe<1>({"thv_zi"},{&thv_zi});
 
   linear_interp(team,zt_grid,zi_grid,thv,thv_zi,nlev,nlevi,0);
   team.team_barrier();
@@ -43,6 +44,7 @@ void Functions<S,D>
 
   // Release temporary variable from the workspace
   workspace.release(thv_zi);
+  //workspace.template release_many_contiguous<1>({&thv_zi});
 }
 
 } // namespace shoc

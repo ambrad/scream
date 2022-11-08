@@ -38,7 +38,8 @@ void Functions<S,D>::shoc_energy_fixer(
   const uview_1d<Spack>&       host_dse)
 {
   // Define temporary variables
-  auto rho_zi = workspace.take("rho_zi");
+  //auto rho_zi = workspace.take("rho_zi");
+  uview_1d<Spack> rho_zi; workspace.template take_many_contiguous_unsafe<1>({"rho_zi"},{&rho_zi});
 
   // Constants
   const auto cp = C::CP;
@@ -57,6 +58,15 @@ void Functions<S,D>::shoc_energy_fixer(
   // but it redundant when calling shoc_main
   linear_interp(team,zt_grid,zi_grid,rho_zt,rho_zi,nlev,nlevi,0);
   team.team_barrier();
+  {
+    const auto s = scalarize(rho_zi);
+    Kokkos::parallel_for(
+      Kokkos::TeamThreadRange(team, nlevi),
+      [&] (Int k) {
+        if (s(k) == ekat::ScalarTraits<Scalar>::invalid())
+          printf("amb> rho NaN\n");
+      });
+  }
 
   // Compute the host timestep
   const Scalar hdtime = dtime*nadv;
@@ -68,12 +78,13 @@ void Functions<S,D>::shoc_energy_fixer(
   // Compute the total energy before and after SHOC call
   const Scalar shf = wthl_sfc*cp*s_rho_zi(nlevi-1);
   const Scalar lhf = wqw_sfc*s_rho_zi(nlevi-1);
-  te_a = se_a + ke_a + (lcond+lice)*wv_a +lice*wl_a;
+  te_a = se_a + ke_a + (lcond+lice)*wv_a + lice*wl_a;
   te_b = se_b + ke_b + (lcond+lice)*wv_b + lice*wl_b;
   te_b += (shf+lhf*(lcond+lice))*hdtime;
 
   // Limit the energy fixer to find highest layer where SHOC is active.
   // Find first level where tke is higher than lowest threshold.
+  static_assert(Spack::n == IntSmallPack::n, "SHOC: assumption in ||r.");
   Int shoctop = 0;
   const auto nlevm2_packs = ekat::npack<Spack>(nlev-2);
   Kokkos::parallel_reduce(Kokkos::TeamThreadRange(team, nlevm2_packs),
@@ -89,6 +100,7 @@ void Functions<S,D>::shoc_energy_fixer(
       local_shoctop = min_indx;
     }
   }, Kokkos::Min<int>(shoctop));
+  team.team_barrier();
 
   // Compute the disbalance of total energy, over depth where SHOC is active.
   se_dis = (te_a - te_b)/(s_pint(nlevi-1) - s_pint(shoctop));
@@ -103,7 +115,8 @@ void Functions<S,D>::shoc_energy_fixer(
   });
 
   // Release temporary variables from the workspace
-  workspace.release(rho_zi);
+  //workspace.release(rho_zi);
+  workspace.template release_many_contiguous<1>({&rho_zi});
 }
 
 } // namespace shoc

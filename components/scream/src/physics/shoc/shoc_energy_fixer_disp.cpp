@@ -39,6 +39,7 @@ void Functions<Real,DefaultDevice>
     const Int i = team.league_rank();
 
     auto workspace       = workspace_mgr.get_workspace(team);
+    //Kokkos::single(Kokkos::PerTeam(team), [&] () { printf("amb> i %d ws_idx %d\n",i,workspace.m_ws_idx); });
 
     shoc_energy_fixer(team, nlev, nlevi, dtime, nadv,
                       ekat::subview(zt_grid, i),
