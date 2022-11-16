@@ -130,17 +130,6 @@ struct ConnectionHelpers {
       ConnectionKind::CORNER    // NE
   };
 
-  const Direction CONNECTION_DIRECTION[NUM_CONNECTIONS][NUM_CONNECTIONS] = {
-    {Direction::BACKWARD, Direction::FORWARD , Direction::FORWARD,  Direction::BACKWARD, Direction::INVALID, Direction::INVALID, Direction::INVALID, Direction::INVALID}, // S/(S-N-W-E)
-    {Direction::FORWARD,  Direction::BACKWARD, Direction::BACKWARD, Direction::FORWARD,  Direction::INVALID, Direction::INVALID, Direction::INVALID, Direction::INVALID}, // N/(S-N-W-E)
-    {Direction::FORWARD,  Direction::BACKWARD, Direction::BACKWARD, Direction::FORWARD,  Direction::INVALID, Direction::INVALID, Direction::INVALID, Direction::INVALID}, // W/(S-N-W-E)
-    {Direction::BACKWARD, Direction::FORWARD , Direction::FORWARD,  Direction::BACKWARD, Direction::INVALID, Direction::INVALID, Direction::INVALID, Direction::INVALID}, // E/(S-N-W-E)
-    {Direction::INVALID,  Direction::INVALID,  Direction::INVALID,  Direction::INVALID,  Direction::FORWARD, Direction::FORWARD, Direction::FORWARD, Direction::FORWARD},
-    {Direction::INVALID,  Direction::INVALID,  Direction::INVALID,  Direction::INVALID,  Direction::FORWARD, Direction::FORWARD, Direction::FORWARD, Direction::FORWARD},
-    {Direction::INVALID,  Direction::INVALID,  Direction::INVALID,  Direction::INVALID,  Direction::FORWARD, Direction::FORWARD, Direction::FORWARD, Direction::FORWARD},
-    {Direction::INVALID,  Direction::INVALID,  Direction::INVALID,  Direction::INVALID,  Direction::FORWARD, Direction::FORWARD, Direction::FORWARD, Direction::FORWARD}
-  };
-
   // We only need 12 out of these 16, but for clarity, we define them all, plus an invalid one
   const GaussPoint GP_0       {  0,  0 };
   const GaussPoint GP_1       {  0,  1 };

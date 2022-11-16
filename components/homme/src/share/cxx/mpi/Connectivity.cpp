@@ -113,7 +113,17 @@ void Connectivity::add_connection (const int first_elem_lid,  const int first_el
     info.kind = etoi(m_helpers.CONNECTION_KIND[first_elem_pos]);
 
     // Direction
-    info.direction = etoi(m_helpers.CONNECTION_DIRECTION[local.pos][remote.pos]);
+    static const Direction CONNECTION_DIRECTION[4][4] = {
+      {Direction::BACKWARD, Direction::FORWARD , Direction::FORWARD,  Direction::BACKWARD},
+      {Direction::FORWARD,  Direction::BACKWARD, Direction::BACKWARD, Direction::FORWARD},
+      {Direction::FORWARD,  Direction::BACKWARD, Direction::BACKWARD, Direction::FORWARD},
+      {Direction::BACKWARD, Direction::FORWARD , Direction::FORWARD,  Direction::BACKWARD}
+    };
+    info.direction = (local.pos < 4 ?
+                      // edge
+                      etoi(CONNECTION_DIRECTION[local.pos][remote.pos]) :
+                      // corner
+                      etoi(Direction::FORWARD));
 
     if (second_elem_pid!=m_comm.rank())
     {
