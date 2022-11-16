@@ -139,6 +139,7 @@ module prim_cxx_driver_base
     use gridgraph_mod,  only : GridEdge_t
     use metagraph_mod,  only : MetaVertex_t
     use parallel_mod,   only : parallel_t
+    use dimensions_mod, only : max_corner_elem
     !
     ! Interfaces
     !
@@ -154,14 +155,16 @@ module prim_cxx_driver_base
       subroutine finalize_connectivity () bind(c)
       end subroutine finalize_connectivity
 
-      subroutine add_connection (first_lid,  first_gid,  first_pos,  first_pid, &
-                                 second_lid, second_gid, second_pos, second_pid) bind(c)
+      subroutine add_connection (first_lid,  first_gid,  first_pos,  first_pid,  &
+                                 second_lid, second_gid, second_pos, second_pid, &
+                                 max_corner_elem) bind(c)
         use iso_c_binding, only : c_int
         !
         ! Inputs
         !
         integer (kind=c_int), intent(in) :: first_lid,  first_gid,  first_pos,  first_pid
         integer (kind=c_int), intent(in) :: second_lid, second_gid, second_pos, second_pid
+        integer (kind=c_int), intent(in) :: max_corner_elem
       end subroutine add_connection
     end interface
     !
@@ -189,7 +192,8 @@ module prim_cxx_driver_base
     do ie=1,num_edges
       e = GridEdge(ie)
       call add_connection(Global2Local(e%head%number),e%head%number,e%head_dir,e%head%processor_number, &
-                          Global2Local(e%tail%number),e%tail%number,e%tail_dir,e%tail%processor_number)
+                          Global2Local(e%tail%number),e%tail%number,e%tail_dir,e%tail%processor_number, &
+                          max_corner_elem)
     enddo
 
     call finalize_connectivity()

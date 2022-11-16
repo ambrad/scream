@@ -35,7 +35,8 @@ void init_connectivity (const int& num_local_elems)
 }
 
 void add_connection (const int& first_elem_lid,  const int& first_elem_gid,  const int& first_elem_pos,  const int& first_elem_pid,
-                     const int& second_elem_lid, const int& second_elem_gid, const int& second_elem_pos, const int& second_elem_pid)
+                     const int& second_elem_lid, const int& second_elem_gid, const int& second_elem_pos, const int& second_elem_pid,
+                     const int& max_corner_elem)
 {
   // Check that F90 is in base 1
   if (first_elem_lid<=0  || first_elem_gid<=0  || first_elem_pos<=0  || first_elem_pid<=0 ||
@@ -45,10 +46,19 @@ void add_connection (const int& first_elem_lid,  const int& first_elem_gid,  con
     std::abort();
   }
 
-  // S, N, W, E is unpack order, so we want elem_pos to reflect
-  // that. Convert here.
-  const auto convert = [=] (int fpos) -> int {
-    return fpos <= 4 ? (((fpos-1) + 2) % 4) : (fpos-1);
+  const auto convert = [=] (const int fpos) -> int {
+    if (fpos <= 4) {
+      // edge_mod::edgeVunpack_nlyr establishes the S, N, W, E unpack order for
+      // element edges. Return the position in this order for this edge.
+      return ((fpos - 1) + 2) % 4;
+    } else {
+      // This is a corner. In the unpack phase, corners are unpaced after
+      // edges. For the cubed-sphere grid, BFB accumulation of corners is
+      // trivial since there is at most one corner-attached element per
+      // corner. So just convert to base-0 indexing.
+      assert(max_corner_elem == 1);
+      return fpos - 1;
+    }
   };
   const int fep = convert(first_elem_pos), sep = convert(second_elem_pos);
 

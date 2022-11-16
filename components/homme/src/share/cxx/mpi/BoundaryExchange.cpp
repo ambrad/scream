@@ -315,7 +315,6 @@ pack (const ExecViewUnmanaged<const ConnectionInfo*[NUM_CONNECTIONS]> connection
   if (partial_column) assert(nlev_packs_->extent_int(0) == num_3d_fields);
   ExecViewUnmanaged<const int*> nlev_packs;
   if (partial_column) nlev_packs = *nlev_packs_;
-  //if (partial_column) { pr("pack" pu(NUM_LEV_PACKS)); prarr("nlev_packs",nlev_packs_->data(),nlev_packs_->extent_int(0)); }
   if (OnGpu<ExecSpace>::value) {
     const ConnectionHelpers helpers;
     Kokkos::parallel_for(
@@ -483,7 +482,6 @@ unpack (const ExecViewManaged<ExecViewManaged<Scalar[NP][NP][NUM_LEV_PACKS]>**> 
   if (partial_column) assert(nlev_packs_->extent_int(0) == num_3d_fields);
   ExecViewUnmanaged<const int*> nlev_packs;
   if (partial_column) nlev_packs = *nlev_packs_;
-  //if (partial_column) { pr("unpack" pu(NUM_LEV_PACKS)); prarr("nlev_packs",nlev_packs_->data(),nlev_packs_->extent_int(0)); }
   if (OnGpu<ExecSpace>::value) {
     const ConnectionHelpers helpers;
     Kokkos::parallel_for(
@@ -1053,7 +1051,6 @@ void BoundaryExchange::build_buffer_views_and_requests()
     const auto h = Kokkos::create_mirror_view(m_3d_nlev_pack_d);
     for (int i = 0; i < m_num_3d_fields; ++i) h(i) = m_3d_nlev_pack[i];
     Kokkos::deep_copy(m_3d_nlev_pack_d, h);
-    //prarr("m_3d_nlev_pack_d",m_3d_nlev_pack_d.data(),m_3d_nlev_pack_d.extent_int(0));
   }
   
 #ifndef NDEBUG
