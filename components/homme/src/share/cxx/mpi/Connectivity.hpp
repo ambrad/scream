@@ -8,10 +8,10 @@
 #define HOMMEXX_CONNECTIVITY_HPP
 
 #include "ConnectivityHelpers.hpp"
-
 #include "Comm.hpp"
-
 #include "Types.hpp"
+
+#include <cstdint>
 
 namespace Homme
 {
@@ -35,18 +35,18 @@ constexpr int INVALID_ID = -1;
 // Note: we store kind, sharing and direction already converted to ints
 struct ConnectionInfo
 {
+  // This is only needed if the neighboring element is owned by a different process
+  int remote_pid; // Process id owning the other side of the connection
+
   LidGidPos local;
   LidGidPos remote;
 
-  int kind;     // etoi(ConnectionKind::EDGE)=0, etoi(ConnectionKind::CORNER)=1,  etoi(ConnectionSharing::MISSING)=2
-  int sharing;  // etoi(ConnectionSharing::LOCAL)=0, etoi(ConnectionSharing::SHARED)=1, etoi(ConnectionSharing::MISSING)=2
+  std::uint8_t kind;     // etoi(ConnectionKind::EDGE)=0, etoi(ConnectionKind::CORNER)=1,  etoi(ConnectionSharing::MISSING)=2
+  std::uint8_t sharing;  // etoi(ConnectionSharing::LOCAL)=0, etoi(ConnectionSharing::SHARED)=1, etoi(ConnectionSharing::MISSING)=2
 
 
   // The following is needed only for W/E/S/N edges, in case the ordering of the NP points is different in the two elements
-  int direction;  //0=forward, 1=backward
-
-  // This is only needed if the neighboring element is owned by a different process
-  int remote_pid; // Process id owning the other side of the connection
+  std::uint8_t direction;  //0=forward, 1=backward
 };
 
 // The connectivity class. It stores two lists of ConnectionInfo objects, one for
@@ -66,6 +66,7 @@ public:
   void set_comm (const Comm& comm);
 
   void set_num_elements (const int num_local_elements);
+  void set_max_corner_elements (const int max_corner_elements);
 
   void add_connection (const int first_elem_lid,  const int first_elem_gid,  const int first_elem_pos,  const int first_elem_pid,
                        const int second_elem_lid, const int second_elem_gid, const int second_elem_pos, const int second_elem_pid);
@@ -119,6 +120,7 @@ public:
   int get_num_local_connections  () const { return get_num_connections<MemSpace>(ConnectionSharing::LOCAL, ConnectionKind::ANY); }
 
   int get_num_local_elements     () const { return m_num_local_elements;  }
+  int getmax_corner_elements     () const { return m_max_corner_elements; }
 
   bool is_initialized () const { return m_initialized; }
   bool is_finalized   () const { return m_finalized;   }
@@ -133,7 +135,7 @@ private:
   bool    m_finalized;
   bool    m_initialized;
 
-  int     m_num_local_elements;
+  int     m_num_local_elements, m_max_corner_elements;
 
   ConnectionHelpers m_helpers;
 

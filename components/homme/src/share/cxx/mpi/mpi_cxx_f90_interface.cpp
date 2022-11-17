@@ -27,16 +27,16 @@ void reset_cxx_comm (const MPI_Fint& f_comm)
   Context::singleton().get<Comm>().reset_mpi_comm(c_comm);
 }
 
-void init_connectivity (const int& num_local_elems)
+void init_connectivity (const int& num_local_elems, const int& max_corner_elems)
 {
   Connectivity& connectivity = Context::singleton().create<Connectivity>();
   connectivity.set_num_elements(num_local_elems);
+  connectivity.set_max_corner_elements(max_corner_elems);
   connectivity.set_comm(Context::singleton().get<Comm>());
 }
 
 void add_connection (const int& first_elem_lid,  const int& first_elem_gid,  const int& first_elem_pos,  const int& first_elem_pid,
-                     const int& second_elem_lid, const int& second_elem_gid, const int& second_elem_pos, const int& second_elem_pid,
-                     const int& max_corner_elem)
+                     const int& second_elem_lid, const int& second_elem_gid, const int& second_elem_pos, const int& second_elem_pid)
 {
   // Check that F90 is in base 1
   if (first_elem_lid<=0  || first_elem_gid<=0  || first_elem_pos<=0  || first_elem_pid<=0 ||
@@ -56,7 +56,7 @@ void add_connection (const int& first_elem_lid,  const int& first_elem_gid,  con
       // edges. For the cubed-sphere grid, BFB accumulation of corners is
       // trivial since there is at most one corner-attached element per
       // corner. So just convert to base-0 indexing.
-      assert(max_corner_elem == 1);
+      assert(m_max_corner_elements == 1);
       return fpos - 1;
     }
   };

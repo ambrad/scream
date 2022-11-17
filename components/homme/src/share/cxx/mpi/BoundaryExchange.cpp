@@ -997,7 +997,6 @@ void BoundaryExchange::build_buffer_views_and_requests()
     const int iconn = slot_idx_to_elem_conn_pair[k] % NUM_CONNECTIONS;
     {
       const ConnectionInfo& info = h_connections(ie, iconn);
-
       const LidGidPos local = info.local;
 
       auto send_buffer = h_all_send_buffers[info.sharing];

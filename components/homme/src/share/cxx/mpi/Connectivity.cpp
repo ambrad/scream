@@ -17,6 +17,7 @@ Connectivity::Connectivity ()
  : m_finalized    (false)
  , m_initialized  (false)
  , m_num_local_elements (-1)
+ , m_max_corner_elements(-1)
 {
   // Nothing to be done here
 }
@@ -73,6 +74,11 @@ void Connectivity::set_num_elements (const int num_local_elements)
 
   // Connectivity is now initialized
   m_initialized = true;
+}
+
+void Connectivity::set_max_corner_elements (const int max_corner_elements)
+{
+  m_max_corner_elements = max_corner_elements;
 }
 
 void Connectivity::add_connection (const int first_elem_lid,  const int first_elem_gid,  const int first_elem_pos,  const int first_elem_pid,

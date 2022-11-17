@@ -144,27 +144,25 @@ module prim_cxx_driver_base
     ! Interfaces
     !
     interface
-      subroutine init_connectivity (num_local_elems) bind (c)
+      subroutine init_connectivity (num_local_elems, max_corner_elems) bind (c)
         use iso_c_binding, only : c_int
         !
         ! Inputs
         !
-        integer (kind=c_int), intent(in) :: num_local_elems
+        integer (kind=c_int), intent(in) :: num_local_elems, max_corner_elems
       end subroutine init_connectivity
 
       subroutine finalize_connectivity () bind(c)
       end subroutine finalize_connectivity
 
       subroutine add_connection (first_lid,  first_gid,  first_pos,  first_pid,  &
-                                 second_lid, second_gid, second_pos, second_pid, &
-                                 max_corner_elem) bind(c)
+                                 second_lid, second_gid, second_pos, second_pid) bind(c)
         use iso_c_binding, only : c_int
         !
         ! Inputs
         !
         integer (kind=c_int), intent(in) :: first_lid,  first_gid,  first_pos,  first_pid
         integer (kind=c_int), intent(in) :: second_lid, second_gid, second_pos, second_pid
-        integer (kind=c_int), intent(in) :: max_corner_elem
       end subroutine add_connection
     end interface
     !
@@ -185,15 +183,14 @@ module prim_cxx_driver_base
     call generate_global_to_local(MetaVertex,Global2Local,par)
 
     ! Initialize C++ connectivity structure
-    call init_connectivity(nelemd)
+    call init_connectivity(nelemd, max_corner_elem)
 
     ! Add all connections to the C++ structure
     num_edges = SIZE(GridEdge)
     do ie=1,num_edges
       e = GridEdge(ie)
       call add_connection(Global2Local(e%head%number),e%head%number,e%head_dir,e%head%processor_number, &
-                          Global2Local(e%tail%number),e%tail%number,e%tail_dir,e%tail%processor_number, &
-                          max_corner_elem)
+                          Global2Local(e%tail%number),e%tail%number,e%tail_dir,e%tail%processor_number)
     enddo
 
     call finalize_connectivity()
