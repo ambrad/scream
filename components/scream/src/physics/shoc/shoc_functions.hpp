@@ -9,8 +9,26 @@
 #include "ekat/ekat_pack_kokkos.hpp"
 #include "ekat/ekat_workspace.hpp"
 
+#include "ekat/mpi/ekat_comm.hpp"
+#include "../../../../../lxor.hpp"
+
 namespace scream {
 namespace shoc {
+
+template <typename T>
+KOKKOS_INLINE_FUNCTION void combine (LongLong& a, const T& b) {
+  a ^= *reinterpret_cast<const LongLong*>(&b);
+}
+
+struct Result {
+  static const int n = 90;
+  LongLong v[n];
+  KOKKOS_INLINE_FUNCTION Result () { for (int i = 0; i < n; ++i) v[i] = 0; }
+  KOKKOS_INLINE_FUNCTION Result& operator+= (const Result& r) {
+    for (int i = 0; i < n; ++i) v[i] ^= r.v[i];
+    return *this;
+  }
+};
 
 /*
  * Functions is a stateless struct used to encapsulate a
@@ -700,7 +718,8 @@ struct Functions
     const uview_1d<Spack>&       shoc_ql,
     const uview_1d<Spack>&       wqls,
     const uview_1d<Spack>&       wthv_sec,
-    const uview_1d<Spack>&       shoc_ql2);
+    const uview_1d<Spack>&       shoc_ql2,
+    Result& r);
 #ifdef SCREAM_SMALL_KERNELS
   static void shoc_assumed_pdf_disp(
     const Int&                  shcol,
@@ -724,7 +743,8 @@ struct Functions
     const view_2d<Spack>&       shoc_ql,
     const view_2d<Spack>&       wqls,
     const view_2d<Spack>&       wthv_sec,
-    const view_2d<Spack>&       shoc_ql2);
+    const view_2d<Spack>&       shoc_ql2,
+    Result& r);
 #endif
 
   KOKKOS_FUNCTION
@@ -836,7 +856,7 @@ struct Functions
     const uview_1d<Spack>&       w3,
     const uview_1d<Spack>&       wqls_sec,
     const uview_1d<Spack>&       brunt,
-    const uview_1d<Spack>&       isotropy);
+    const uview_1d<Spack>&       isotropy, Result& r);
 #else
   static void shoc_main_internal(
     const Int&                   shcol,        // Number of columns
@@ -913,7 +933,7 @@ struct Functions
     const view_2d<Spack>& shoc_qv,
     const view_2d<Spack>& dz_zt,
     const view_2d<Spack>& dz_zi,
-    const view_2d<Spack>& tkh);
+    const view_2d<Spack>& tkh, Result& r);
 #endif
 
   // Return microseconds elapsed
@@ -933,7 +953,7 @@ struct Functions
 #ifdef SCREAM_SMALL_KERNELS
     , const SHOCTemporaries& shoc_temporaries      // Temporaries for small kernels
 #endif
-                       );
+    , const ekat::Comm* comm = nullptr);
 
   KOKKOS_FUNCTION
   static void pblintd_height(
@@ -1082,7 +1102,8 @@ struct Functions
     const uview_1d<Spack>&       tke,
     const uview_1d<Spack>&       tk,
     const uview_1d<Spack>&       tkh,
-    const uview_1d<Spack>&       isotropy);
+    const uview_1d<Spack>&       isotropy,
+    Result& r);
 #ifdef SCREAM_SMALL_KERNELS
   static void shoc_tke_disp(
     const Int&                   shcol,
@@ -1105,7 +1126,8 @@ struct Functions
     const view_2d<Spack>&        tke,
     const view_2d<Spack>&        tk,
     const view_2d<Spack>&        tkh,
-    const view_2d<Spack>&        isotropy);
+    const view_2d<Spack>&        isotropy,
+    Result& r);
 #endif
 }; // struct Functions
 

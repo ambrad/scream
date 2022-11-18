@@ -27,18 +27,18 @@ void Functions<S,D>
 {
 
   //Shared constants
-  static constexpr Scalar ggr      = C::gravit;
-  static constexpr Scalar basetemp = C::basetemp;
-  static constexpr Scalar mintke   = scream::shoc::Constants<Real>::mintke;
-  static constexpr Scalar maxtke   = scream::shoc::Constants<Real>::maxtke;
+  const Scalar ggr      = C::gravit;
+  const Scalar basetemp = C::basetemp;
+  const Scalar mintke   = scream::shoc::Constants<Real>::mintke;
+  const Scalar maxtke   = scream::shoc::Constants<Real>::maxtke;
 
   //declare some constants
-  static constexpr Scalar Cs  = 0.15;
-  static constexpr Scalar Ck  = 0.1;
-  static constexpr Scalar Ce  = (Ck*Ck*Ck)/((Cs*Cs)*(Cs*Cs));
-  static constexpr Scalar Ce1 = Ce/sp(0.7)*sp(0.19);
-  static constexpr Scalar Ce2 = Ce/sp(0.7)*sp(0.51);
-  static constexpr Scalar Cee = Ce1 + Ce2;
+  const Scalar Cs  = 0.15;
+  const Scalar Ck  = 0.1;
+  const Scalar Ce  = (Ck*Ck*Ck)/((Cs*Cs)*(Cs*Cs));
+  const Scalar Ce1 = Ce/sp(0.7)*sp(0.19);
+  const Scalar Ce2 = Ce/sp(0.7)*sp(0.51);
+  const Scalar Cee = Ce1 + Ce2;
 
   const Int nlev_pack = ekat::npack<Spack>(nlev);
   Kokkos::parallel_for(Kokkos::TeamThreadRange(team, nlev_pack), [&] (const Int& k) {

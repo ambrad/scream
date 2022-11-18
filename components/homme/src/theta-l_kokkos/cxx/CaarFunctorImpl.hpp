@@ -627,16 +627,21 @@ struct CaarFunctorImpl {
       Kokkos::single(Kokkos::PerThread(kv.team),[&]() {
         pi_i(0)[0] = m_hvcoord.ps0*m_hvcoord.hybrid_ai0;
       });
+      kv.team_barrier();
 
       ColumnOps::column_scan_mid_to_int<true>(kv,dp,pi_i);
 
       ColumnOps::compute_midpoint_values(kv,pi_i,pi);
 
+      // Make sure the buffer shared by pi_i and omega_i is free.
+      kv.team_barrier();
+
       Kokkos::single(Kokkos::PerThread(kv.team),[&]() {
         omega_i(0)[0] = 0.0;
       });
+      kv.team_barrier();
 
-      ColumnOps::column_scan_mid_to_int<true>(kv,div_vdp,omega_i);
+      ColumnOps::column_scan_mid_to_int<true>(kv,div_vdp,omega_i);      
       // Average omega_i to midpoints, and change sign, since later
       //   omega=v*grad(pi)-average(omega_i)
       auto omega = Homme::subview(m_buffers.omega_p,kv.team_idx,igp,jgp);

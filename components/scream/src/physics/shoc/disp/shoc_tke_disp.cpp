@@ -28,13 +28,15 @@ void Functions<Real,DefaultDevice>
   const view_2d<Spack>&        tke,
   const view_2d<Spack>&        tk,
   const view_2d<Spack>&        tkh,
-  const view_2d<Spack>&        isotropy)
+  const view_2d<Spack>&        isotropy,
+  Result& result)
 {
   using ExeSpace = typename KT::ExeSpace;
 
   const auto nlev_packs = ekat::npack<Spack>(nlev);
   const auto policy = ekat::ExeSpaceUtils<ExeSpace>::get_default_team_policy(shcol, nlev_packs);
-  Kokkos::parallel_for(policy, KOKKOS_LAMBDA(const MemberType& team) {
+  Result r;
+  Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
     const Int i = team.league_rank();
 
     auto workspace       = workspace_mgr.get_workspace(team);
@@ -56,8 +58,10 @@ void Functions<Real,DefaultDevice>
              ekat::subview(tke, i),
              ekat::subview(tk, i),
              ekat::subview(tkh, i),
-             ekat::subview(isotropy, i));
-  });
+             ekat::subview(isotropy, i),
+             r);
+    }, r);
+  add(r, result);
 }
 
 } // namespace shoc

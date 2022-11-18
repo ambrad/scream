@@ -29,13 +29,15 @@ void Functions<Real,DefaultDevice>
   const view_2d<Spack>&       shoc_ql,
   const view_2d<Spack>&       wqls,
   const view_2d<Spack>&       wthv_sec,
-  const view_2d<Spack>&       shoc_ql2)
+  const view_2d<Spack>&       shoc_ql2,
+  Result& result)
 {
   using ExeSpace = typename KT::ExeSpace;
 
   const auto nlev_packs = ekat::npack<Spack>(nlev);
   const auto policy = ekat::ExeSpaceUtils<ExeSpace>::get_default_team_policy(shcol, nlev_packs);
-  Kokkos::parallel_for(policy, KOKKOS_LAMBDA(const MemberType& team) {
+  Result r;
+  Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
     const Int i = team.league_rank();
 
     auto workspace = workspace_mgr.get_workspace(team);
@@ -60,8 +62,10 @@ void Functions<Real,DefaultDevice>
       ekat::subview(shoc_ql, i),
       ekat::subview(wqls, i),
       ekat::subview(wthv_sec, i),
-      ekat::subview(shoc_ql2, i));
-  });
+      ekat::subview(shoc_ql2, i),
+      r);
+    }, r);
+  add(r, result);
 }
 
 } // namespace shoc

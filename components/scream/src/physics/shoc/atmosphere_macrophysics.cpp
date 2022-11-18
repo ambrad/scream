@@ -419,7 +419,8 @@ void SHOCMacrophysics::initialize_impl (const RunType run_type)
   const int n_wind_slots = ekat::npack<Spack>(2)*Spack::n;
   const int n_trac_slots = ekat::npack<Spack>(m_num_tracers+3)*Spack::n;
   const auto default_policy = ekat::ExeSpaceUtils<KT::ExeSpace>::get_default_team_policy(m_num_cols, nlev_packs);
-  workspace_mgr.setup(m_buffer.wsm_data, nlevi_packs, 13+(n_wind_slots+n_trac_slots), default_policy);
+  //amb over-provision factor
+  workspace_mgr.setup(m_buffer.wsm_data, nlevi_packs, 13+(n_wind_slots+n_trac_slots), default_policy, 10);
 
   // Calculate pref_mid, and use that to calculate
   // maximum number of levels in pbl from surface
@@ -442,6 +443,10 @@ void SHOCMacrophysics::initialize_impl (const RunType run_type)
 // =========================================================================================
 void SHOCMacrophysics::run_impl (const int dt)
 {
+  static int call = 0;
+  if (get_comm().am_i_root()) fprintf(stderr,"amb> shoc call %d\n",call);
+  call++;
+  
   EKAT_REQUIRE_MSG (dt<=300,
       "Error! SHOC is intended to run with a timestep no longer than 5 minutes.\n"
       "       Please, reduce timestep (perhaps increasing subcycling iteratinos).\n");
@@ -472,7 +477,7 @@ void SHOCMacrophysics::run_impl (const int dt)
 #ifdef SCREAM_SMALL_KERNELS
                  , temporaries
 #endif
-                 );
+                 , &get_comm());
 
   // Postprocessing of SHOC outputs
   Kokkos::parallel_for("shoc_postprocess",

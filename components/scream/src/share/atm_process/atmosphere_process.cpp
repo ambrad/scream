@@ -8,6 +8,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "../../../../../lxor.hpp"
+
 namespace scream
 {
 
@@ -75,11 +77,91 @@ void AtmosphereProcess::initialize (const TimeStamp& t0, const RunType run_type)
 }
 
 void AtmosphereProcess::run (const int dt) {
+  const auto f = [&] (const std::string& label) {
+    std::string lbl;
+    std::stringstream ss;
+    ss << label << "." << timestamp().get_num_steps();
+    lbl = ss.str();
+    const auto& comm = get_comm();
+    if (comm.am_i_root())
+      fprintf(stdout, "amb q> AP::%s %s start\n", name().c_str(), lbl.c_str());
+    for (const auto sc : {"tracers", "qv", "phis", "T_mid", "ps", "surf_sens_flux", "omega"}) {
+      std::string s(sc);
+      try {
+        LongLong vl[32] = {0}, vg[32] = {0};
+        int nq = 1;
+        if (s == "phis" || s == "ps" || s == "surf_sens_flux") {
+          const auto v = get_field_in(s).get_view<const Real*>();
+          const auto qh = Kokkos::create_mirror_view(v);
+          Kokkos::deep_copy(qh, v);
+          for (int i = 0; i < qh.extent_int(0); ++i)
+            vl[0] ^= *reinterpret_cast<const LongLong*>(&qh(i));
+        } else if (s == "tracers") {
+          const auto v = get_group_in(s).m_bundle->get_view<const Real***>();
+          const auto qh = Kokkos::create_mirror_view(v);
+          Kokkos::deep_copy(qh, v);
+          nq = qh.extent_int(1);
+          for (int i = 0; i < qh.extent_int(0); ++i)
+            for (int j = 0; j < nq; ++j)
+              for (int k = 0; k < qh.extent_int(2); ++k)
+                vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k));
+        } else {
+          const auto v = get_field_in(s).get_view<const Real**>();
+          const auto qh = Kokkos::create_mirror_view(v);
+          Kokkos::deep_copy(qh, v);
+          for (int i = 0; i < qh.extent_int(0); ++i)
+            for (int k = 0; k < qh.extent_int(1); ++k)
+              vl[0] ^= *reinterpret_cast<const LongLong*>(&qh(i,k));
+        }
+        all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
+        if (comm.am_i_root())
+          for (int iq = 0; iq < nq; ++iq)
+            fprintf(stdout, "amb q> AP::%s %s %s %d %lld\n",
+                    name().c_str(), lbl.c_str(), sc, iq, vg[iq]);
+      } catch (...) {
+        try {
+          LongLong vl[32] = {0}, vg[32] = {0};
+          int nq = 1;
+          if (s == "phis" || s == "ps" || s == "surf_sens_flux") {
+            const auto v = get_field_out(s).get_view<Real*>();
+            const auto qh = Kokkos::create_mirror_view(v);
+            Kokkos::deep_copy(qh, v);
+            for (int i = 0; i < qh.extent_int(0); ++i)
+              vl[0] ^= *reinterpret_cast<const LongLong*>(&qh(i));
+          } else if (s == "tracers") {
+            const auto v = get_group_out(s).m_bundle->get_view<Real***>();
+            const auto qh = Kokkos::create_mirror_view(v);
+            Kokkos::deep_copy(qh, v);
+            nq = qh.extent_int(1);
+            for (int i = 0; i < qh.extent_int(0); ++i)
+              for (int j = 0; j < nq; ++j)
+                for (int k = 0; k < qh.extent_int(2); ++k)
+                  vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k));
+          } else {
+            const auto v = get_field_out(s).get_view<Real**>();
+            const auto qh = Kokkos::create_mirror_view(v);
+            Kokkos::deep_copy(qh, v);
+            for (int i = 0; i < qh.extent_int(0); ++i)
+              for (int k = 0; k < qh.extent_int(1); ++k)
+                vl[0] ^= *reinterpret_cast<const LongLong*>(&qh(i,k));
+          }
+          all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
+          if (comm.am_i_root())
+            for (int iq = 0; iq < nq; ++iq)
+              fprintf(stdout, "amb q> AP::%s %s %s %d %lld\n",
+                      name().c_str(), lbl.c_str(), sc, iq, vg[iq]);        
+        } catch (...) {}
+      }
+    }
+  };
+
+  f("run0");
   start_timer (m_timer_prefix + this->name() + "::run");
   if (m_params.get("enable_precondition_checks", true)) {
     // Run 'pre-condition' property checks stored in this AP
     run_precondition_checks();
   }
+  f("run1");
 
   EKAT_REQUIRE_MSG ( (dt % m_num_subcycles)==0,
       "Error! The number of subcycle iterations does not exactly divide the time step.\n"
@@ -98,11 +180,29 @@ void AtmosphereProcess::run (const int dt) {
       compute_column_conservation_checks_data(dt_sub);
     }
 
+    {
+      std::stringstream ss;
+      ss << "run2." << m_subcycle_iter;
+      f(ss.str());
+    }
+
     run_impl(dt_sub);
 
+    {
+      std::stringstream ss;
+      ss << "run3." << m_subcycle_iter;
+      f(ss.str());
+    }
+    
     if (has_column_conservation_check()) {
       // Run the column local mass and energy conservation checks
       run_column_conservation_check();
+    }
+
+    {
+      std::stringstream ss;
+      ss << "run4." << m_subcycle_iter;
+      f(ss.str());
     }
   }
 
@@ -110,6 +210,7 @@ void AtmosphereProcess::run (const int dt) {
     // Run 'post-condition' property checks stored in this AP
     run_postcondition_checks();
   }
+  f("run5");
 
   m_time_stamp += dt;
   if (m_update_time_stamps) {
