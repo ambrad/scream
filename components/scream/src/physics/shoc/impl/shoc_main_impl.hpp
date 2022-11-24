@@ -549,15 +549,15 @@ void Functions<S,D>::shoc_main_internal(
       Kokkos::single(
         Kokkos::PerTeam(team),
         [&] () {
-          combine(r.v[36], wthl_sfc(i));
+          combine(r.v[85], wthl_sfc(i));
           for (int k = 0; k < nlev; ++k) {
-            combine(r.v[32], thetal(i,k));
-            combine(r.v[32], shoc_ql(i,k));
-            combine(r.v[32], host_dse(i,k));
-            combine(r.v[32], pdel(i,k));
-            combine(r.v[32], qw(i,k));
-            combine(r.v[32], u_wind(i,k));
-            combine(r.v[32], v_wind(i,k));
+            combine(r.v[0], thetal(i,k));
+            combine(r.v[0], shoc_ql(i,k));
+            combine(r.v[0], host_dse(i,k));
+            combine(r.v[0], pdel(i,k));
+            combine(r.v[0], qw(i,k));
+            combine(r.v[0], u_wind(i,k));
+            combine(r.v[0], v_wind(i,k));
           }
         });
     }, r); add(r, r1);
@@ -574,10 +574,12 @@ void Functions<S,D>::shoc_main_internal(
       Kokkos::single(
         Kokkos::PerTeam(team),
         [&] () {
-          combine(r.v[0], se_b(i));
-          combine(r.v[29], ke_b(i));
-          combine(r.v[30], wv_b(i));
-          combine(r.v[31], wl_b(i));
+          combine(r.v[1],  se_b(i));
+          combine(r.v[2], ke_b(i));
+          combine(r.v[3], wv_b(i));
+          combine(r.v[4], wl_b(i));
+          for (int k = 0; k < nlev; ++k)
+            combine(r.v[5], tke(i,k));
         });
     }, r); add(r, r1);
   
@@ -592,11 +594,8 @@ void Functions<S,D>::shoc_main_internal(
         Kokkos::single(
           Kokkos::PerTeam(team),
           [&] () {
-            for (int k = 0; k < nlev; ++k) {
-              combine(r.v[1], tke(i,k));
-              combine(r.v[1], tk (i,k));
-              combine(r.v[1], tkh(i,k));
-            }
+            for (int k = 0; k < nlev; ++k)
+              combine(r.v[6], tke(i,k));
           });
       }, r); add(r, r1);
 
@@ -607,6 +606,19 @@ void Functions<S,D>::shoc_main_internal(
                    zt_grid,zi_grid,pdel, // Input
                    dz_zt,dz_zi,rho_zt);  // Output
     Kokkos::fence();
+    Kokkos::parallel_reduce(policy, KOKKOS_LAMBDA(const MemberType& team, Result& r) {
+        const Int i = team.league_rank();
+        Kokkos::single(
+          Kokkos::PerTeam(team),
+          [&] () {
+            for (int k = 0; k < nlev; ++k) {
+              combine(r.v[36], dz_zt(i,k));
+              combine(r.v[37], rho_zt(i,k));
+            }
+            for (int k = 0; k < nlev+1; ++k)
+              combine(r.v[40], dz_zi(i,k));
+          });
+      }, r); add(r, r1);
 
     // Compute the planetary boundary layer height, which is an
     // input needed for the length scale calculation.
@@ -622,7 +634,7 @@ void Functions<S,D>::shoc_main_internal(
           Kokkos::PerTeam(team),
           [&] () {
             for (int k = 0; k < nlev; ++k)
-              combine(r.v[2], shoc_qv(i,k));
+              combine(r.v[9], shoc_qv(i,k));
           });
       }, r); add(r, r1);
     shoc_diag_obklen_disp(shcol, nlev,
@@ -639,9 +651,9 @@ void Functions<S,D>::shoc_main_internal(
         Kokkos::single(
           Kokkos::PerTeam(team),
           [&] () {
-            combine(r.v[56], ustar(i));
-            combine(r.v[57], kbfs(i));
-            combine(r.v[58], obklen(i));
+            combine(r.v[10], ustar(i));
+            combine(r.v[11], kbfs(i));
+            combine(r.v[12], obklen(i));
           });
       }, r); add(r, r1);
     workspace_mgr.reset_internals();
@@ -658,12 +670,12 @@ void Functions<S,D>::shoc_main_internal(
         Kokkos::single(
           Kokkos::PerTeam(team),
           [&] () {
-            combine(r.v[3], pblh(i));
+            combine(r.v[13], pblh(i));
             for (int k = 0; k < nlev; ++k) {
-              combine(r.v[59], thv(i,k));
+              combine(r.v[14], thv(i,k));
             }
-            combine(r.v[61], dx(i));
-            combine(r.v[62], dy(i));
+            combine(r.v[15], dx(i));
+            combine(r.v[16], dy(i));
           });
       }, r); add(r, r1);
 
@@ -681,10 +693,10 @@ void Functions<S,D>::shoc_main_internal(
           Kokkos::PerTeam(team),
           [&] () {
             for (int k = 0; k < nlev; ++k) {
-              combine(r.v[60], shoc_mix(i,k));
-              combine(r.v[4], brunt(i,k));
-              combine(r.v[74], tke(i,k));
-              combine(r.v[78], wthv_sec(i,k));
+              combine(r.v[17], shoc_mix(i,k));
+              combine(r.v[18], brunt(i,k));
+              combine(r.v[19], tke(i,k));
+              combine(r.v[20], wthv_sec(i,k));
             }
           });
       }, r); add(r, r1);
@@ -708,10 +720,10 @@ void Functions<S,D>::shoc_main_internal(
           Kokkos::PerTeam(team),
           [&] () {
             for (int k = 0; k < nlev; ++k) {
-              combine(r.v[5], isotropy(i,k));   // diff
-              combine(r.v[35], thetal(i,k));    // no diff
+              combine(r.v[21], isotropy(i,k));   // diff
+              combine(r.v[22], thetal(i,k));    // no diff
             }
-            combine(r.v[37], wthl_sfc(i));      // no diff
+            combine(r.v[23], wthl_sfc(i));      // no diff
           });
       }, r); add(r, r1);
     workspace_mgr.reset_internals();
@@ -727,11 +739,13 @@ void Functions<S,D>::shoc_main_internal(
           Kokkos::PerTeam(team),
           [&] () {
             for (int k = 0; k < nlev; ++k) {
-              combine(r.v[6], thetal(i,k));
-              combine(r.v[7], u_wind(i,k));
-              combine(r.v[8], v_wind(i,k));
-              combine(r.v[9], tke(i,k));
-              combine(r.v[10], qw(i,k));
+              combine(r.v[7], tk (i,k));
+              combine(r.v[8], tkh(i,k));
+              combine(r.v[24], thetal(i,k));
+              combine(r.v[25], u_wind(i,k));
+              combine(r.v[26], v_wind(i,k));
+              combine(r.v[27], tke(i,k));
+              combine(r.v[28], qw(i,k));
             }
           });
       }, r); add(r, r1);
@@ -752,26 +766,23 @@ void Functions<S,D>::shoc_main_internal(
           Kokkos::PerTeam(team),
           [&] () {
             for (int k = 0; k < nlev; ++k) {
-              combine(r.v[13], w_sec(i,k));
-              combine(r.v[44], tke(i,k));
-              combine(r.v[39], w_sec(i,k));
-              combine(r.v[40], thetal(i,k));
-              combine(r.v[41], brunt(i,k));
-              combine(r.v[42], isotropy(i,k));
-              combine(r.v[47], zt_grid(i,k));
-              combine(r.v[48], dz_zt(i,k));
-              combine(r.v[63], rho_zt(i,k));
+              combine(r.v[29], w_sec(i,k));
+              combine(r.v[30], tke(i,k));
+              combine(r.v[31], w_sec(i,k));
+              combine(r.v[32], thetal(i,k));
+              combine(r.v[33], brunt(i,k));
+              combine(r.v[34], isotropy(i,k));
+              combine(r.v[35], zt_grid(i,k));
             }
             for (int k = 0; k < nlev+1; ++k) {
-              combine(r.v[15], qwthl_sec(i,k));
-              combine(r.v[43], wthl_sec(i,k));
-              combine(r.v[45], dz_zi(i,k));
-              combine(r.v[12], uw_sec(i,k));
-              combine(r.v[11], wtke_sec(i,k));
-              combine(r.v[14], vw_sec(i,k));
-              combine(r.v[38], thl_sec(i,k));
-              combine(r.v[46], zi_grid(i,k));
-              combine(r.v[64], presi(i,k));
+              combine(r.v[38], qwthl_sec(i,k));
+              combine(r.v[39], wthl_sec(i,k));
+              combine(r.v[41], uw_sec(i,k));
+              combine(r.v[42], wtke_sec(i,k));
+              combine(r.v[43], vw_sec(i,k));
+              combine(r.v[44], thl_sec(i,k));
+              combine(r.v[45], zi_grid(i,k));
+              combine(r.v[46], presi(i,k));
             }
           });
       }, r); add(r, r1);
@@ -793,11 +804,11 @@ void Functions<S,D>::shoc_main_internal(
           Kokkos::PerTeam(team),
           [&] () {
             for (int k = 0; k < nlev; ++k) {
-              combine(r.v[16], w3(i,k));
-              combine(r.v[79], w_field(i,k));
-              combine(r.v[80], qw_sec(i,k));
-              combine(r.v[81], wqw_sec(i,k));
-              combine(r.v[82], pres(i,k));
+              combine(r.v[47], w3(i,k));
+              combine(r.v[48], w_field(i,k));
+              combine(r.v[49], qw_sec(i,k));
+              combine(r.v[50], wqw_sec(i,k));
+              combine(r.v[51], pres(i,k));
             }
           });
       }, r); add(r, r1);
@@ -818,15 +829,15 @@ void Functions<S,D>::shoc_main_internal(
           Kokkos::PerTeam(team),
           [&] () {
             for (int k = 0; k < nlev; ++k) {
-              combine(r.v[17], tke(i,k));
-              combine(r.v[49], shoc_cldfrac(i,k));
-              combine(r.v[50], shoc_ql(i,k));
-              combine(r.v[51], wqls_sec(i,k));
-              combine(r.v[52], wthv_sec(i,k));
-              combine(r.v[53], shoc_ql2(i,k));
-              combine(r.v[54], inv_exner(i,k));
+              combine(r.v[52], tke(i,k));
+              combine(r.v[53], shoc_cldfrac(i,k));
+              combine(r.v[54], shoc_ql(i,k));
+              combine(r.v[55], wqls_sec(i,k));
+              combine(r.v[56], wthv_sec(i,k));
+              combine(r.v[57], shoc_ql2(i,k));
+              combine(r.v[58], inv_exner(i,k));
             }
-            combine(r.v[55], phis(i));
+            combine(r.v[59], phis(i));
           });
       }, r); add(r, r1);
   }
@@ -845,7 +856,7 @@ void Functions<S,D>::shoc_main_internal(
         Kokkos::PerTeam(team),
         [&] () {
           for (int k = 0; k < nlev; ++k)
-            combine(r.v[18], host_dse(i,k));
+            combine(r.v[60], host_dse(i,k));
         });
     }, r); add(r, r1);
   shoc_energy_integrals_disp(shcol,nlev,host_dse,pdel,  // Input
@@ -857,12 +868,12 @@ void Functions<S,D>::shoc_main_internal(
       Kokkos::single(
         Kokkos::PerTeam(team),
         [&] () {
-          combine(r.v[19], se_a(i));
-          combine(r.v[20], ke_a(i));
-          combine(r.v[21], wv_a(i));
-          combine(r.v[22], wl_a(i));
-          combine(r.v[33], wthl_sfc(i));
-          combine(r.v[34], wqw_sfc(i));
+          combine(r.v[61], se_a(i));
+          combine(r.v[62], ke_a(i));
+          combine(r.v[63], wv_a(i));
+          combine(r.v[64], wl_a(i));
+          combine(r.v[65], wthl_sfc(i));
+          combine(r.v[66], wqw_sfc(i));
         });
       }, r); add(r, r1);
   workspace_mgr.reset_internals();
@@ -878,7 +889,7 @@ void Functions<S,D>::shoc_main_internal(
         Kokkos::PerTeam(team),
         [&] () {
           for (int k = 0; k < nlev; ++k)
-            combine(r.v[23], host_dse(i,k));
+            combine(r.v[67], host_dse(i,k));
         });
       }, r); add(r, r1);
 
@@ -899,7 +910,7 @@ void Functions<S,D>::shoc_main_internal(
         Kokkos::PerTeam(team),
         [&] () {
           for (int k = 0; k < nlev; ++k)
-            combine(r.v[24], shoc_qv(i,k));
+            combine(r.v[68], shoc_qv(i,k));
         });
       }, r); add(r, r1);
   shoc_diag_obklen_disp(shcol, nlev, uw_sfc,vw_sfc,      // Input
@@ -914,9 +925,9 @@ void Functions<S,D>::shoc_main_internal(
       Kokkos::single(
         Kokkos::PerTeam(team),
         [&] () {
-          combine(r.v[25], ustar(i));
-          combine(r.v[26], kbfs(i));
-          combine(r.v[27], obklen(i));
+          combine(r.v[69], ustar(i));
+          combine(r.v[70], kbfs(i));
+          combine(r.v[71], obklen(i));
         });
       }, r); add(r, r1);
   workspace_mgr.reset_internals();
@@ -932,7 +943,7 @@ void Functions<S,D>::shoc_main_internal(
       Kokkos::single(
         Kokkos::PerTeam(team),
         [&] () {
-          combine(r.v[28], pblh(i));
+          combine(r.v[72], pblh(i));
         });
     }, r); add(r, r1);
 }
@@ -1062,7 +1073,7 @@ Int Functions<S,D>::shoc_main(
   Result g;
   all_reduce(comm->mpi_comm(), result.v, g.v, g.n, Op(lxor, true));
   if (comm->am_i_root())
-    for (int i = 0; i <= 82; ++i)
+    for (int i = 0; i <= 85; ++i)
       printf("amb q> shoc end result 0 %d %lld\n", i, g.v[i]);
 #endif
   auto finish = std::chrono::steady_clock::now();

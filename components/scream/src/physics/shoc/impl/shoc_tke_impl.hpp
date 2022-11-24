@@ -58,7 +58,7 @@ void Functions<S,D>::shoc_tke(
   Kokkos::memory_fence(); //amb
   const Int nlev_pack = ekat::npack<Spack>(nlev);
   Kokkos::parallel_for(Kokkos::TeamThreadRange(team, nlev_pack), [&] (const Int& k) {
-    combine(r.v[65], brunt_int);
+    combine(r.v[84], brunt_int);
   });
   team.team_barrier(); //amb
   // Compute shear production term, which is on interface levels
@@ -74,8 +74,8 @@ void Functions<S,D>::shoc_tke(
     Kokkos::PerTeam(team),
     [&] () {
       for (int k = 0; k < nlev; ++k) {
-        combine(r.v[66], sterm_zt[k]);
-        combine(r.v[73], tke[k]);
+        combine(r.v[73], sterm_zt[k]);
+        combine(r.v[74], tke[k]);
         combine(r.v[75], wthv_sec[k]); // diff
         combine(r.v[76], shoc_mix[k]);
         combine(r.v[77], tk[k]);
@@ -90,12 +90,12 @@ void Functions<S,D>::shoc_tke(
     Kokkos::PerTeam(team),
     [&] () {
       for (int k = 0; k < nlev; ++k) {
-        combine(r.v[67], a_diss[k]);
-        combine(r.v[68], tke[k]);
-        combine(r.v[69], brunt[k]);
+        combine(r.v[78], a_diss[k]);
+        combine(r.v[79], tke[k]);
+        combine(r.v[80], brunt[k]);
       }
-      combine(r.v[70], obklen);
-      combine(r.v[71], pblh);
+      combine(r.v[81], obklen);
+      combine(r.v[82], pblh);
     });
   team.team_barrier(); //amb
   // Compute isotropic time scale [s]
@@ -106,7 +106,7 @@ void Functions<S,D>::shoc_tke(
     Kokkos::PerTeam(team),
     [&] () {
       for (int k = 0; k < nlev; ++k)
-        combine(r.v[72], isotropy[k]);
+        combine(r.v[83], isotropy[k]);
     });
   team.team_barrier(); //amb
   // Compute eddy diffusivity for heat and momentum

@@ -85,17 +85,24 @@ void AtmosphereProcess::run (const int dt) {
     const auto& comm = get_comm();
     if (comm.am_i_root())
       fprintf(stdout, "amb q> AP::%s %s start\n", name().c_str(), lbl.c_str());
-    for (const auto sc : {"tracers", "qv", "phis", "T_mid", "ps", "surf_sens_flux", "omega"}) {
+    for (const auto sc :
+           {"tracers", "qv", "T_mid", "phis", "ps", "omega", "surf_sens_flux", "sfc_alb_dir_vis",
+            "sfc_alb_dir_nir", "sfc_alb_dif_vis", "sfc_alb_dif_nir", "surf_lw_flux_up",
+            "surf_evap", "surf_mom_flux", "surf_radiative_T", "T_2m", "qv_2m", "wind_speed_10m",
+            "snow_depth_land", "sfc_flux_dir_nir", "sfc_flux_dir_vis", "sfc_flux_dif_nir",
+            "sfc_flux_dif_vis", "sfc_flux_sw_net", "sfc_flux_lw_dn", "precip_liq_surf_mass",
+            "precip_ice_surf_mass"}) {
       std::string s(sc);
       try {
         LongLong vl[32] = {0}, vg[32] = {0};
         int nq = 1;
-        if (s == "phis" || s == "ps" || s == "surf_sens_flux") {
-          const auto v = get_field_in(s).get_view<const Real*>();
+        if (s == "qv" || s == "T_mid" || s == "omega") {
+          const auto v = get_field_in(s).get_view<const Real**>();
           const auto qh = Kokkos::create_mirror_view(v);
           Kokkos::deep_copy(qh, v);
           for (int i = 0; i < qh.extent_int(0); ++i)
-            vl[0] ^= *reinterpret_cast<const LongLong*>(&qh(i));
+            for (int k = 0; k < qh.extent_int(1); ++k)
+              vl[0] ^= *reinterpret_cast<const LongLong*>(&qh(i,k));
         } else if (s == "tracers") {
           const auto v = get_group_in(s).m_bundle->get_view<const Real***>();
           const auto qh = Kokkos::create_mirror_view(v);
@@ -106,13 +113,12 @@ void AtmosphereProcess::run (const int dt) {
               for (int k = 0; k < qh.extent_int(2); ++k)
                 vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k));
         } else {
-          const auto v = get_field_in(s).get_view<const Real**>();
+          const auto v = get_field_in(s).get_view<const Real*>();
           const auto qh = Kokkos::create_mirror_view(v);
           Kokkos::deep_copy(qh, v);
           for (int i = 0; i < qh.extent_int(0); ++i)
-            for (int k = 0; k < qh.extent_int(1); ++k)
-              vl[0] ^= *reinterpret_cast<const LongLong*>(&qh(i,k));
-        }
+            vl[0] ^= *reinterpret_cast<const LongLong*>(&qh(i));
+        } 
         all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
         if (comm.am_i_root())
           for (int iq = 0; iq < nq; ++iq)
@@ -122,14 +128,15 @@ void AtmosphereProcess::run (const int dt) {
         try {
           LongLong vl[32] = {0}, vg[32] = {0};
           int nq = 1;
-          if (s == "phis" || s == "ps" || s == "surf_sens_flux") {
-            const auto v = get_field_out(s).get_view<Real*>();
+          if (s == "qv" || s == "T_mid" || s == "omega") {
+            const auto v = get_field_out(s).get_view<const Real**>();
             const auto qh = Kokkos::create_mirror_view(v);
             Kokkos::deep_copy(qh, v);
             for (int i = 0; i < qh.extent_int(0); ++i)
-              vl[0] ^= *reinterpret_cast<const LongLong*>(&qh(i));
+              for (int k = 0; k < qh.extent_int(1); ++k)
+                vl[0] ^= *reinterpret_cast<const LongLong*>(&qh(i,k));
           } else if (s == "tracers") {
-            const auto v = get_group_out(s).m_bundle->get_view<Real***>();
+            const auto v = get_group_out(s).m_bundle->get_view<const Real***>();
             const auto qh = Kokkos::create_mirror_view(v);
             Kokkos::deep_copy(qh, v);
             nq = qh.extent_int(1);
@@ -138,13 +145,12 @@ void AtmosphereProcess::run (const int dt) {
                 for (int k = 0; k < qh.extent_int(2); ++k)
                   vl[j] ^= *reinterpret_cast<const LongLong*>(&qh(i,j,k));
           } else {
-            const auto v = get_field_out(s).get_view<Real**>();
+            const auto v = get_field_out(s).get_view<const Real*>();
             const auto qh = Kokkos::create_mirror_view(v);
             Kokkos::deep_copy(qh, v);
             for (int i = 0; i < qh.extent_int(0); ++i)
-              for (int k = 0; k < qh.extent_int(1); ++k)
-                vl[0] ^= *reinterpret_cast<const LongLong*>(&qh(i,k));
-          }
+              vl[0] ^= *reinterpret_cast<const LongLong*>(&qh(i));
+          } 
           all_reduce(comm.mpi_comm(), vl, vg, nq, Op(lxor, true));
           if (comm.am_i_root())
             for (int iq = 0; iq < nq; ++iq)
