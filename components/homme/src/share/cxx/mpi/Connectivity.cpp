@@ -59,12 +59,12 @@ void Connectivity::set_num_elements (const int num_local_elements)
       info.kind    = etoi(ConnectionKind::MISSING);
 
       info.local.lid = ie;
-      info.local.pos = iconn;
+      info.local.dir = iconn;
 
       info.local.gid  = INVALID_ID;
       info.remote.lid = INVALID_ID;
       info.remote.gid = INVALID_ID;
-      info.remote.pos = INVALID_ID;
+      info.remote.dir = INVALID_ID;
 
     }
   }
@@ -81,8 +81,9 @@ void Connectivity::set_max_corner_elements (const int max_corner_elements)
   m_max_corner_elements = max_corner_elements;
 }
 
-void Connectivity::add_connection (const int first_elem_lid,  const int first_elem_gid,  const int first_elem_pos,  const int first_elem_pid,
-                                   const int second_elem_lid, const int second_elem_gid, const int second_elem_pos, const int second_elem_pid)
+void Connectivity::add_connection (
+  const int e1_lid, const int e1_gid, const std::uint8_t e1_dir, const std::uint8_t e1_dir_idx, const int e1_pid,
+  const int e2_lid, const int e2_gid, const std::uint8_t e2_dir, const std::uint8_t e2_dir_idx, const int e2_pid)
 {
   // Connectivity must be in initialized state but not in finalized state
   assert (m_initialized);
@@ -93,30 +94,29 @@ void Connectivity::add_connection (const int first_elem_lid,  const int first_el
 
   // I believe edges appear twice in fortran, once per each ordering.
   // Here, we only need to store them once
-  if (first_elem_pid==m_comm.rank())
-  {
-#ifndef NDEBUG
+  if (e1_pid == m_comm.rank()) {
     // There is no edge-to-corner connection. Either the elements share a corner or an edge.
-    assert (m_helpers.CONNECTION_KIND[first_elem_pos]==m_helpers.CONNECTION_KIND[second_elem_pos]);
+    assert (m_helpers.CONNECTION_KIND[e1_dir]==m_helpers.CONNECTION_KIND[e2_dir]);
 
     // The elem lid on the local side must be valid!
-    assert (first_elem_lid>=0);
-#endif
+    assert (e1_lid>=0);
 
-    ConnectionInfo& info = h_connections(first_elem_lid,first_elem_pos);
+    ConnectionInfo& info = h_connections(e1_lid,e1_dir);
     LidGidPos& local  = info.local;
     LidGidPos& remote = info.remote;
 
     // Local and remote elements lid and connection position
-    local.lid  = first_elem_lid;
-    local.gid  = first_elem_gid;
-    local.pos  = first_elem_pos;
-    remote.lid = second_elem_lid;
-    remote.gid = second_elem_gid;
-    remote.pos = second_elem_pos;
+    local.lid  = e1_lid;
+    local.gid  = e1_gid;
+    local.dir  = e1_dir;
+    local.dir_idx = e1_dir_idx;
+    remote.lid = e2_lid;
+    remote.gid = e2_gid;
+    remote.dir = e2_dir;
+    remote.dir_idx = e2_dir_idx;
 
     // Kind
-    info.kind = etoi(m_helpers.CONNECTION_KIND[first_elem_pos]);
+    info.kind = etoi(m_helpers.CONNECTION_KIND[e1_dir]);
 
     // Direction
     static const Direction CONNECTION_DIRECTION[4][4] = {
@@ -125,17 +125,15 @@ void Connectivity::add_connection (const int first_elem_lid,  const int first_el
       {Direction::FORWARD,  Direction::BACKWARD, Direction::BACKWARD, Direction::FORWARD},
       {Direction::BACKWARD, Direction::FORWARD , Direction::FORWARD,  Direction::BACKWARD}
     };
-    info.direction = (local.pos < 4 ?
+    info.direction = (local.dir < 4 ?
                       // edge
-                      etoi(CONNECTION_DIRECTION[local.pos][remote.pos]) :
+                      etoi(CONNECTION_DIRECTION[local.dir][remote.dir]) :
                       // corner
                       etoi(Direction::FORWARD));
 
-    if (second_elem_pid!=m_comm.rank())
-    {
+    if (e2_pid != m_comm.rank()) {
       info.sharing = etoi(ConnectionSharing::SHARED);
-      info.remote_pid = second_elem_pid;
-
+      info.remote_pid = e2_pid;
     } else {
       info.remote_pid = -1;
       info.sharing = etoi(ConnectionSharing::LOCAL);

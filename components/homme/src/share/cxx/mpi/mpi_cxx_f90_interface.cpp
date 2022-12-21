@@ -35,36 +35,44 @@ void init_connectivity (const int& num_local_elems, const int& max_corner_elems)
   connectivity.set_comm(Context::singleton().get<Comm>());
 }
 
-void add_connection (const int& first_elem_lid,  const int& first_elem_gid,  const int& first_elem_pos,  const int& first_elem_pid,
-                     const int& second_elem_lid, const int& second_elem_gid, const int& second_elem_pos, const int& second_elem_pid)
+// Extract dir (in 0:7) and dir_idx (in 0:max_corner_elements-1) from
+//     fpos = (dir+1)*max_corner_elems + dir_idx.
+static void convert (const int max_corner_elements, const int fpos, std::uint8_t& dir, std::uint8_t& dir_idx) {
+  assert(fpos > 0);
+  assert(fpos <= 8*max_corner_elements);
+  dir = fpos / max_corner_elements - 1;
+  if (dir < 4) {
+    // edge_mod::edgeVunpack_nlyr establishes the S, N, W, E unpack order for
+    // element edges. Return the position in this order for this edge.
+    dir = (dir + 2) % 4;
+  }
+  // In the unpack phase, corners are unpacked after edges. For the cubed-sphere
+  // grid, BFB accumulation of corners is trivial since there is at most one
+  // corner-attached element per corner. For an RRM grid, multiple elements can
+  // be associated with a corner, and the order must follow the convention
+  // established in gridgraph_mod.F90 and schedule_mod.F90.
+  dir_idx = fpos % max_corner_elements;
+  assert(dir_idx == 0 || dir >= 4);
+}
+
+void add_connection (const int& e1_lid, const int& e1_gid, const int& e1_pos, const int& e1_pid,
+                     const int& e2_lid, const int& e2_gid, const int& e2_pos, const int& e2_pid)
 {
   // Check that F90 is in base 1
-  if (first_elem_lid<=0  || first_elem_gid<=0  || first_elem_pos<=0  || first_elem_pid<=0 ||
-      second_elem_lid<=0 || second_elem_gid<=0 || second_elem_pos<=0 || second_elem_pid<=0)
-  {
-    std::cout << "ERROR! We were assuming F90 indices started at 1, but it appears there is an exception.\n";
-    std::abort();
-  }
-
-  const auto convert = [=] (const int fpos) -> int {
-    if (fpos <= 4) {
-      // edge_mod::edgeVunpack_nlyr establishes the S, N, W, E unpack order for
-      // element edges. Return the position in this order for this edge.
-      return ((fpos - 1) + 2) % 4;
-    } else {
-      // This is a corner. In the unpack phase, corners are unpaced after
-      // edges. For the cubed-sphere grid, BFB accumulation of corners is
-      // trivial since there is at most one corner-attached element per
-      // corner. So just convert to base-0 indexing.
-      assert(m_max_corner_elements == 1);
-      return fpos - 1;
-    }
-  };
-  const int fep = convert(first_elem_pos), sep = convert(second_elem_pos);
+  Errors::runtime_check(e1_lid >= 1 && e1_gid >= 1 && e1_pos >= 1 && e1_pid >= 1 &&
+                        e2_lid >= 1 && e2_gid >= 1 && e2_pos >= 1 && e2_pid >= 1,
+                        "add_connection: F90 indices should start at 1");
 
   Connectivity& connectivity = Context::singleton().get<Connectivity>();
-  connectivity.add_connection(first_elem_lid-1, first_elem_gid-1, fep, first_elem_pid-1,
-                              second_elem_lid-1,second_elem_gid-1,sep,second_elem_pid-1);
+  const auto max_corner_elements = connectivity.get_max_corner_elements();
+  assert(max_corner_elements >= 1);
+
+  std::uint8_t e1_d, e1_didx, e2_d, e2_didx;
+  convert(max_corner_elements, e1_pos, e1_d, e1_didx);
+  convert(max_corner_elements, e2_pos, e2_d, e2_didx);
+
+  connectivity.add_connection(e1_lid-1, e1_gid-1, e1_d, e1_didx, e1_pid-1,
+                              e2_lid-1, e2_gid-1, e2_d, e2_didx, e2_pid-1);
 }
 
 void finalize_connectivity ()

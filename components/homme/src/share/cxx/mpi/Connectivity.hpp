@@ -15,14 +15,14 @@
 
 namespace Homme
 {
-// A simple struct to store, for a connection between elements, the local/global id of the element
-// and the position, meaning which neighbor this connection refers to (W/E/S/N/SW/SE/NW/NE)
-// Much like std::tuple, but with more verbose members' names
+// Store, for a connection between elements, the local and global IDs of the
+// element and the position. A position is its direction (edge or corner) and
+// its direction index (> 0 for some corners in RRM grids).
 struct LidGidPos
 {
   int lid;
   int gid;
-  int pos;
+  std::uint8_t dir, dir_idx;
 };
 
 // An invalid id
@@ -68,8 +68,12 @@ public:
   void set_num_elements (const int num_local_elements);
   void set_max_corner_elements (const int max_corner_elements);
 
-  void add_connection (const int first_elem_lid,  const int first_elem_gid,  const int first_elem_pos,  const int first_elem_pid,
-                       const int second_elem_lid, const int second_elem_gid, const int second_elem_pos, const int second_elem_pid);
+  // An element's position is determined by
+  // * its dir: 0-3: S, N, W, E edges; 4-7: corners and
+  // * its order within the dir, the dir_idx, which is > 0 only for some
+  //   corners in RRM grids.
+  void add_connection (const int e1_lid, const int e1_gid, const std::uint8_t e1_dir, const std::uint8_t e1_dir_idx, const int e1_pid,
+                       const int e2_lid, const int e2_gid, const std::uint8_t e2_dir, const std::uint8_t e2_dir_idx, const int e2_pid);
 
   void finalize (const bool sanity_check = true);
 
@@ -120,7 +124,7 @@ public:
   int get_num_local_connections  () const { return get_num_connections<MemSpace>(ConnectionSharing::LOCAL, ConnectionKind::ANY); }
 
   int get_num_local_elements     () const { return m_num_local_elements;  }
-  int getmax_corner_elements     () const { return m_max_corner_elements; }
+  int get_max_corner_elements    () const { return m_max_corner_elements; }
 
   bool is_initialized () const { return m_initialized; }
   bool is_finalized   () const { return m_finalized;   }

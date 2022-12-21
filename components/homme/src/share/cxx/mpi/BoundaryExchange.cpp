@@ -340,8 +340,8 @@ pack (const ExecViewUnmanaged<const ConnectionInfo*[NUM_CONNECTIONS]> connection
                                           info.local);
         // Note: if it is an edge and the remote edge is in the reverse order,
         // we read the field_lidpos points backwards.
-        const auto& pts = helpers.CONNECTION_PTS[info.direction][field_lidpos.pos];
-        const auto& sb = send_3d_buffers(buffer_lidpos.lid, ifield, buffer_lidpos.pos);
+        const auto& pts = helpers.CONNECTION_PTS[info.direction][field_lidpos.dir];
+        const auto& sb = send_3d_buffers(buffer_lidpos.lid, ifield, buffer_lidpos.dir);
         const auto& f3 = fields_3d(field_lidpos.lid, ifield);
         for (int k = 0; k < helpers.CONNECTION_SIZE[info.kind]; ++k) {
           sb(k, ilev) = f3(pts[k].ip, pts[k].jp, ilev);
@@ -373,8 +373,8 @@ pack (const ExecViewUnmanaged<const ConnectionInfo*[NUM_CONNECTIONS]> connection
           const LidGidPos& buffer_lidpos = (info.sharing == etoi(ConnectionSharing::LOCAL) ?
                                             info.remote :
                                             info.local);
-          const auto& pts = helpers.CONNECTION_PTS[info.direction][field_lidpos.pos];
-          const auto& sb = send_3d_buffers(buffer_lidpos.lid, ifield, buffer_lidpos.pos);
+          const auto& pts = helpers.CONNECTION_PTS[info.direction][field_lidpos.dir];
+          const auto& sb = send_3d_buffers(buffer_lidpos.lid, ifield, buffer_lidpos.dir);
           const auto& f3 = fields_3d(field_lidpos.lid, ifield);
           Kokkos::parallel_for(
             Kokkos::TeamThreadRange(kv.team, helpers.CONNECTION_SIZE[info.kind]),
@@ -435,9 +435,9 @@ void BoundaryExchange::pack_and_send ()
       const LidGidPos& buffer_lidpos = info.sharing==etoi(ConnectionSharing::LOCAL) ? info.remote : info.local;
 
       // Note: if it is an edge and the remote edge is in the reverse order, we read the field_lidpos points backwards
-      const auto& pts = helpers.CONNECTION_PTS[info.direction][field_lidpos.pos];
+      const auto& pts = helpers.CONNECTION_PTS[info.direction][field_lidpos.dir];
       for (int k=0; k<helpers.CONNECTION_SIZE[info.kind]; ++k) {
-        send_2d_buffers(buffer_lidpos.lid, ifield, buffer_lidpos.pos)(k) = fields_2d(field_lidpos.lid, ifield)(pts[k].ip, pts[k].jp);
+        send_2d_buffers(buffer_lidpos.lid, ifield, buffer_lidpos.dir)(k) = fields_2d(field_lidpos.lid, ifield)(pts[k].ip, pts[k].jp);
       }
     });
   }
@@ -729,9 +729,9 @@ void BoundaryExchange::pack_and_send_min_max ()
         // lid. We can do it here
         const LidGidPos& buffer_lidpos = info.sharing==etoi(ConnectionSharing::LOCAL) ? info.remote : info.local;
 
-        send_1d_buffers(buffer_lidpos.lid, ifield, buffer_lidpos.pos)(MAX_ID, ilev) =
+        send_1d_buffers(buffer_lidpos.lid, ifield, buffer_lidpos.dir)(MAX_ID, ilev) =
           fields_1d(field_lidpos.lid, ifield)(MAX_ID, ilev);
-        send_1d_buffers(buffer_lidpos.lid, ifield, buffer_lidpos.pos)(MIN_ID, ilev) =
+        send_1d_buffers(buffer_lidpos.lid, ifield, buffer_lidpos.dir)(MIN_ID, ilev) =
           fields_1d(field_lidpos.lid, ifield)(MIN_ID, ilev);
       });
   } else {
@@ -757,7 +757,7 @@ void BoundaryExchange::pack_and_send_min_max ()
         const LidGidPos& buffer_lidpos = (info.sharing == etoi(ConnectionSharing::LOCAL) ?
                                           info.remote :
                                           info.local);
-        const auto& sb = send_1d_buffers(buffer_lidpos.lid, ifield, buffer_lidpos.pos);
+        const auto& sb = send_1d_buffers(buffer_lidpos.lid, ifield, buffer_lidpos.dir);
         const auto& f1 = fields_1d(field_lidpos.lid, ifield);
         for (int k = 0; k < 2; ++k) {
           auto* const sbp = &sb(k, 0);
@@ -1003,33 +1003,33 @@ void BoundaryExchange::build_buffer_views_and_requests()
       auto recv_buffer = h_all_recv_buffers[info.sharing];
 
       for (int ifield=0; ifield<m_num_1d_fields; ++ifield) {
-        h_send_1d_buffers(local.lid, ifield, local.pos) = ExecViewUnmanaged<Scalar[2][NUM_LEV]>(
+        h_send_1d_buffers(local.lid, ifield, local.dir) = ExecViewUnmanaged<Scalar[2][NUM_LEV]>(
           reinterpret_cast<Scalar*>(send_buffer.get() + h_buf_offset[info.sharing]));
-        h_recv_1d_buffers(local.lid, ifield, local.pos) = ExecViewUnmanaged<Scalar[2][NUM_LEV]>(
+        h_recv_1d_buffers(local.lid, ifield, local.dir) = ExecViewUnmanaged<Scalar[2][NUM_LEV]>(
           reinterpret_cast<Scalar*>(recv_buffer.get() + h_buf_offset[info.sharing]));
         h_buf_offset[info.sharing] += h_increment_1d[info.kind]*NUM_LEV*VECTOR_SIZE;
       }
       for (int ifield=0; ifield<m_num_2d_fields; ++ifield) {
-        h_send_2d_buffers(local.lid, ifield, local.pos) = ExecViewUnmanaged<Real*>(
+        h_send_2d_buffers(local.lid, ifield, local.dir) = ExecViewUnmanaged<Real*>(
           send_buffer.get() + h_buf_offset[info.sharing], helpers.CONNECTION_SIZE[info.kind]);
-        h_recv_2d_buffers(local.lid, ifield, local.pos) = ExecViewUnmanaged<Real*>(
+        h_recv_2d_buffers(local.lid, ifield, local.dir) = ExecViewUnmanaged<Real*>(
           recv_buffer.get() + h_buf_offset[info.sharing], helpers.CONNECTION_SIZE[info.kind]);
         h_buf_offset[info.sharing] += h_increment_2d[info.kind];
       }
       for (int ifield=0; ifield<m_num_3d_fields; ++ifield) {
-        h_send_3d_buffers(local.lid, ifield, local.pos) = ExecViewUnmanaged<Scalar**>(
+        h_send_3d_buffers(local.lid, ifield, local.dir) = ExecViewUnmanaged<Scalar**>(
           reinterpret_cast<Scalar*>(send_buffer.get() + h_buf_offset[info.sharing]),
           helpers.CONNECTION_SIZE[info.kind], m_3d_nlev_pack[ifield]);
-        h_recv_3d_buffers(local.lid, ifield, local.pos) = ExecViewUnmanaged<Scalar**>(
+        h_recv_3d_buffers(local.lid, ifield, local.dir) = ExecViewUnmanaged<Scalar**>(
           reinterpret_cast<Scalar*>(recv_buffer.get() + h_buf_offset[info.sharing]),
           helpers.CONNECTION_SIZE[info.kind], m_3d_nlev_pack[ifield]);
         h_buf_offset[info.sharing] += h_increment_3d[info.kind]*m_3d_nlev_pack[ifield]*VECTOR_SIZE;
       }
       for (int ifield=0; ifield<m_num_3d_int_fields; ++ifield) {
-        h_send_3d_int_buffers(local.lid, ifield, local.pos) = ExecViewUnmanaged<Scalar**>(
+        h_send_3d_int_buffers(local.lid, ifield, local.dir) = ExecViewUnmanaged<Scalar**>(
           reinterpret_cast<Scalar*>(send_buffer.get() + h_buf_offset[info.sharing]),
           helpers.CONNECTION_SIZE[info.kind], NUM_LEV_P);
-        h_recv_3d_int_buffers(local.lid, ifield, local.pos) = ExecViewUnmanaged<Scalar**>(
+        h_recv_3d_int_buffers(local.lid, ifield, local.dir) = ExecViewUnmanaged<Scalar**>(
           reinterpret_cast<Scalar*>(recv_buffer.get() + h_buf_offset[info.sharing]),
           helpers.CONNECTION_SIZE[info.kind], NUM_LEV_P);
         h_buf_offset[info.sharing] += h_increment_3d[info.kind]*NUM_LEV_P*VECTOR_SIZE;
@@ -1148,9 +1148,9 @@ void BoundaryExchange
       // An ordering of the message buffer upon which both members of the
       // communication pair agree.
       if (info.local.gid < info.remote.gid)
-        i2r.ord = info.local.gid*NUM_CONNECTIONS + info.local.pos;
+        i2r.ord = info.local.gid*NUM_CONNECTIONS + info.local.dir;
       else
-        i2r.ord = info.remote.gid*NUM_CONNECTIONS + info.remote.pos;
+        i2r.ord = info.remote.gid*NUM_CONNECTIONS + info.remote.dir;
       // If local, indicate with -1, which is < the smallest pid of 0.
       i2r.pid = -1;
       if (info.sharing != etoi(ConnectionSharing::SHARED)) continue;
