@@ -11,8 +11,6 @@
 #include "Comm.hpp"
 #include "Types.hpp"
 
-#include <cstdint>
-
 namespace Homme
 {
 // Store, for a connection between elements, the local and global IDs of the
@@ -24,9 +22,6 @@ struct LidGidPos
   int gid;
   std::uint8_t dir, dir_idx;
 };
-
-// An invalid id
-constexpr int INVALID_ID = -1;
 
 // A simple struct, storing a connection info. In addition to LidGidPos (on both local and
 // remote element), it stores also whether the ordering is the same on both the element
@@ -133,6 +128,10 @@ public:
   //@}
 
 private:
+  // An invalid id
+  static constexpr int INVALID_ID = -1;
+  // An invalid direction or direction_idx
+  static constexpr std::uint8_t INVALID_DIR = 0xFF;
 
   Comm    m_comm;
 

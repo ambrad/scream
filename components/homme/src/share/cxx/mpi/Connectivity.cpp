@@ -34,7 +34,6 @@ void Connectivity::set_num_elements (const int num_local_elements)
 {
   // We don't allow to change the number of elements once set. There may be downstream classes
   // that already read num_elements from this class, and would not be informed of the change.
-  // Besides, does it really make sense? Does it add an interesting feature? I don't think so.
   assert (!m_initialized);
 
   // Safety check
@@ -60,12 +59,13 @@ void Connectivity::set_num_elements (const int num_local_elements)
 
       info.local.lid = ie;
       info.local.dir = iconn;
+      info.local.dir_idx = 0;
 
       info.local.gid  = INVALID_ID;
       info.remote.lid = INVALID_ID;
       info.remote.gid = INVALID_ID;
-      info.remote.dir = INVALID_ID;
-
+      info.remote.dir = INVALID_DIR;
+      info.remote.dir = INVALID_DIR;
     }
   }
 
@@ -121,8 +121,8 @@ void Connectivity::add_connection (
     // Direction
     static const Direction CONNECTION_DIRECTION[4][4] = {
       {Direction::BACKWARD, Direction::FORWARD , Direction::FORWARD,  Direction::BACKWARD},
-      {Direction::FORWARD,  Direction::BACKWARD, Direction::BACKWARD, Direction::FORWARD},
-      {Direction::FORWARD,  Direction::BACKWARD, Direction::BACKWARD, Direction::FORWARD},
+      {Direction::FORWARD,  Direction::BACKWARD, Direction::BACKWARD, Direction::FORWARD },
+      {Direction::FORWARD,  Direction::BACKWARD, Direction::BACKWARD, Direction::FORWARD },
       {Direction::BACKWARD, Direction::FORWARD , Direction::FORWARD,  Direction::BACKWARD}
     };
     info.direction = (local.dir < 4 ?
@@ -145,8 +145,8 @@ void Connectivity::add_connection (
 
 void Connectivity::finalize(const bool sanity_check)
 {
-  // Sanity check: Homme does not allow less than 2*2 elements on each of the cube's faces, so each element
-  // should have at most ONE missing connection
+  // Homme does not allow fewer than 2*2 elements on each of the cube's faces,
+  // so each element should have at most ONE missing connection
   constexpr int corners[NUM_CORNERS] = { etoi(ConnectionName::SWEST), etoi(ConnectionName::SEAST), etoi(ConnectionName::NWEST), etoi(ConnectionName::NEAST)};
 
   for (int ie=0; ie<m_num_local_elements; ++ie) {
@@ -167,7 +167,7 @@ void Connectivity::finalize(const bool sanity_check)
                           "       If this is a unit test, you may want to call finalize(false) to disable this check.\n",-1);
   }
 
-  // Updating counters for groups with same sharing/kind
+  // Update counters for groups with same sharing/kind
   for (int kind=0; kind<NUM_CONNECTION_KINDS; ++kind) {
     for (int sharing=0; sharing<NUM_CONNECTION_SHARINGS; ++sharing) {
       h_num_connections(etoi(ConnectionSharing::ANY),kind) += h_num_connections(sharing,kind);
