@@ -192,14 +192,19 @@ void Connectivity::finalize(const bool sanity_check)
 }
 
 bool Connectivity::UConInfo::operator< (const UConInfo& o) const {
-  // We need to sort on local (L/G)ID.
+  // Sort on local (L/G)ID so that element data are contiguous.
   if (l_lid < o.l_lid) return true;
   if (l_lid > o.l_lid) return false;
-  // The rest of the sorting is optional.
+  // Sort next on the direction so that corners having multiple connections have
+  // these connections contiguous.
   if (l_dir < o.l_dir) return true;
   if (l_dir > o.l_dir) return false;
+  // Sort the direction index so that we can run through them linearly with BFB
+  // ordering.
   if (l_dir_idx < o.l_dir_idx) return true;
   if (l_dir_idx > o.l_dir_idx) return false;
+  // These next are optional but might help a tiny bit with contiguity of memory
+  // access.
   if (r_pid < o.r_pid) return true;
   if (r_pid > o.r_pid) return false;
   return r_gid < o.r_gid;
@@ -207,10 +212,10 @@ bool Connectivity::UConInfo::operator< (const UConInfo& o) const {
 
 void Connectivity::setup_ucon () {
   const size_t nconn = ucon_info.size();
-  fprintf(stderr,"amb> nconn %d nle %d\n", int(nconn), int(m_num_local_elements));
 
   d_ucon = decltype(d_ucon)("Unstructured Connections", nconn);
-  d_ucon_ptr = decltype(d_ucon_ptr)("Unstructured Connections Ptr", m_num_local_elements+1);
+  d_ucon_ptr = decltype(d_ucon_ptr)("Unstructured Connections Ptr",
+                                    m_num_local_elements+1);
   h_ucon = Kokkos::create_mirror_view(d_ucon);
   h_ucon_ptr = Kokkos::create_mirror_view(d_ucon_ptr);
 
@@ -221,7 +226,7 @@ void Connectivity::setup_ucon () {
   // Sort by local LID.
   std::sort(ucon_info.begin(), ucon_info.end());
 
-  { // Set up pointers into ucon.
+  { // Set up element pointers into ucon.
     int ie = 0;
     auto l_lid_curr = ucon_info[ie].l_lid;
     assert(l_lid_curr == ie);
@@ -239,18 +244,35 @@ void Connectivity::setup_ucon () {
     assert(ie == m_num_local_elements-1);
   }
 
+  if (OnGpu<ExecSpace>::value) {
+    // Set up direction pointers into ucon.
+    int ndir = 0;
+    for (size_t i = 0; i < nconn; ++i)
+      if (ucon_info[i].l_dir_idx == 0)
+        ++ndir;
+    d_ucon_dir_ptr = decltype(d_ucon_dir_ptr)(
+      "Unstructured Connection Directions Ptr", ndir);
+    h_ucon_dir_ptr = Kokkos::create_mirror_view(d_ucon_dir_ptr);
+    int p = 0;
+    for (size_t i = 0; i < nconn; ++i) {
+      if (ucon_info[i].l_dir_idx == 0)
+        h_ucon_dir_ptr(p++) = i;
+      else
+        assert(i > 0 && ucon_info[i].l_dir == ucon_info[i-1].l_dir);
+    }
+    h_ucon_dir_ptr(p++) = nconn;
+    assert(p == ndir);
+    Kokkos::deep_copy(d_ucon_dir_ptr, h_ucon_dir_ptr);
+  }
+
   // Fill Info structs.
   for (size_t i = 0; i < nconn; ++i) {
     const auto& uci = ucon_info[i];
     auto& info = h_ucon(i);
-    info.local.lid = uci.l_lid;
-    info.local.gid = uci.l_gid;
-    info.local.dir = uci.l_dir;
-    info.local.dir_idx = uci.l_dir_idx;
-    info.remote.lid = uci.r_lid;
-    info.remote.gid = uci.r_gid;
-    info.remote.dir = uci.r_dir;
-    info.remote.dir_idx = uci.r_dir_idx;
+    info.local.lid = uci.l_lid; info.local.gid = uci.l_gid;
+    info.local.dir = uci.l_dir; info.local.dir_idx = uci.l_dir_idx;
+    info.remote.lid = uci.r_lid; info.remote.gid = uci.r_gid;
+    info.remote.dir = uci.r_dir; info.remote.dir_idx = uci.r_dir_idx;
     info.remote_pid = uci.r_pid;
     info.kind = uci.kind;
     info.sharing = uci.sharing;

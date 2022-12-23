@@ -91,10 +91,19 @@ public:
                  ExecViewUnmanaged<const ConnectionInfo*[NUM_CONNECTIONS]>>::type
   get_connections () const { return m_connections; }
 
+  // Unstructured connections to handle RRM case. Connections for an element
+  // having local ID ie are
+  //   ucon(ucon_ptr(ie)):ucon(ucon_ptr(ie+1)-1).
   const ExecViewUnmanaged<const ConnectionInfo*> get_d_ucon () const { return d_ucon; }
   const ExecViewUnmanaged<const int*> get_d_ucon_ptr () const { return d_ucon_ptr; }
   const HostViewUnmanaged<const ConnectionInfo*> get_h_ucon () const { return h_ucon; }
   const HostViewUnmanaged<const int*> get_h_ucon_ptr () const { return h_ucon_ptr; }
+  // Offset pointers at the level of directions within an element. Constructed
+  // only if on GPU.
+  const ExecViewUnmanaged<const int*> get_d_ucon_dir_ptr () const
+  { assert(OnGpu<ExecSpace>::value); return d_ucon_dir_ptr; }
+  const HostViewUnmanaged<const int*> get_h_ucon_dir_ptr () const
+  { assert(OnGpu<ExecSpace>::value); return h_ucon_dir_ptr; }
 
   // Get a particular connection
   template<typename MemSpace>
@@ -154,13 +163,12 @@ private:
   ExecViewManaged<ConnectionInfo*[NUM_CONNECTIONS]>             m_connections;
   ExecViewManaged<ConnectionInfo*[NUM_CONNECTIONS]>::HostMirror h_connections;
 
-  // Unstructured connections to handle RRM case. Connections for an element
-  // having local ID ie are
-  //   ucon(ucon_ptr(ie)):ucon(ucon_ptr(ie+1)-1).
   ExecViewManaged<ConnectionInfo*>             d_ucon;
   ExecViewManaged<ConnectionInfo*>::HostMirror h_ucon;
   ExecViewManaged<int*>             d_ucon_ptr;
   ExecViewManaged<int*>::HostMirror h_ucon_ptr;
+  ExecViewManaged<int*>             d_ucon_dir_ptr;
+  ExecViewManaged<int*>::HostMirror h_ucon_dir_ptr;
   // Helper used to accumulated connections during add_connection phase. Emptied
   // in finalize. l_ is local; r_ is remote.
   struct UConInfo {
