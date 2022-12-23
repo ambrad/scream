@@ -193,8 +193,8 @@ void Connectivity::finalize(const bool sanity_check)
 
 bool Connectivity::UConInfo::operator< (const UConInfo& o) const {
   // We need to sort on local (L/G)ID.
-  if (l_gid < o.l_gid) return true;
-  if (l_gid > o.l_gid) return false;
+  if (l_lid < o.l_lid) return true;
+  if (l_lid > o.l_lid) return false;
   // The rest of the sorting is optional.
   if (l_dir < o.l_dir) return true;
   if (l_dir > o.l_dir) return false;
@@ -218,19 +218,21 @@ void Connectivity::setup_ucon () {
   h_ucon_ptr(m_num_local_elements) = nconn;
   if (nconn == 0) return;
 
-  // Sort by local GID.
+  // Sort by local LID.
   std::sort(ucon_info.begin(), ucon_info.end());
 
   { // Set up pointers into ucon.
     int ie = 0;
-    auto l_gid_curr = ucon_info[ie].l_gid;
+    auto l_lid_curr = ucon_info[ie].l_lid;
+    assert(l_lid_curr == ie);
     for (size_t i = 0; i < nconn; ++i) {
       assert(ie < m_num_local_elements);
       const auto& uci = ucon_info[i];
-      if (uci.l_gid != l_gid_curr) {
-        assert(l_gid_curr < uci.l_gid);
-        l_gid_curr = uci.l_gid;
+      if (uci.l_lid != l_lid_curr) {
+        assert(l_lid_curr < uci.l_lid);
+        l_lid_curr = uci.l_lid;
         ++ie;
+        assert(uci.l_lid == ie);
         h_ucon_ptr(ie) = i;
       }
     }

@@ -1135,14 +1135,49 @@ void BoundaryExchange
   const size_t nconn = ucon.size();
   const int nle = m_num_elems; // number of local elements
   const int mce = m_connectivity->get_max_corner_elements();
-  const int max_num_conn_per_elem = 4*(mce + 1);
-  std::vector<IP> i2remote (nconn);
+  const int n_idx_per_elem = 8*mce;
+  std::vector<IP> i2remote(nconn);
 
-  for (int ie = 0; ie < nle; ++ie)
-    for (int k = ucon_ptr(ie); k < ucon_ptr(ie+1); ++k) {
-      const auto& info = ucon(k);
-      
+  for (int k = 0; k < nconn; ++k) {
+    const auto& info = ucon(k);
+    auto& i2r = i2remote[k];
+    // Original sequence through (element, connection) pairs.
+    i2r.i = k;
+    // An ordering of the message buffer upon which both members of the
+    // communication pair agree.
+    auto& lgp = info.local.gid < info.remote.gid ? info.local : info.remote;
+    i2r.ord = lgp.gid*n_idx_per_elem + lgp.dir*mce + lgp.dir_idx;
+    // If local, indicate with -1, which is < the smallest pid of 0.
+    i2r.pid = -1;
+    if (info.sharing == etoi(ConnectionSharing::SHARED))
+      i2r.pid = info.remote_pid;
+  }
+
+  // Sort so that, first, all (element, connection) pairs having the same
+  // remote_pid are contiguous; second, within such a block, ord is
+  // ascending. The first lets us set up comm buffers so monolithic messages
+  // slot right in. The second means that the send and recv partners agree on
+  // how the monolithic message is packed.
+  std::sort(i2remote.begin(), i2remote.end());
+
+  // Collect the unique remote_pids and get the offsets of the contiguous blocks
+  // of them.
+  slot_idx_to_elem_conn_pair.resize(m_num_elems*NUM_CONNECTIONS);
+  pids.clear();
+  pid_offsets.clear();
+  int prev_pid = -2;
+  for (int k = 0; k < m_num_elems*NUM_CONNECTIONS; ++k) {
+    const auto& i2r = i2remote[k];
+    if (i2r.pid > prev_pid && i2r.pid != -1) {
+      pids.push_back(i2r.pid);
+      pid_offsets.push_back(k);
+      prev_pid = i2r.pid;
     }
+    const int ie = i2r.i / NUM_CONNECTIONS;
+    const int iconn = i2r.i % NUM_CONNECTIONS;
+    slot_idx_to_elem_conn_pair[k] = ie*NUM_CONNECTIONS + iconn;
+  }
+  pid_offsets.push_back(m_num_elems*NUM_CONNECTIONS);
 
 #else
   
