@@ -237,6 +237,8 @@ void BoundaryExchange::registration_completed()
       for (int i = 0; i < m_num_3d_fields; ++i) h(i) = m_3d_nlev_pack[i];
       Kokkos::deep_copy(m_3d_nlev_pack_d, h);
     }
+    // Clear the host vector if it's not needed.
+    if ( ! need_nlev_pack) m_3d_nlev_pack = decltype(m_3d_nlev_pack)();
   }
 
   // Prohibit further registration of fields, and allow exchange
@@ -939,13 +941,14 @@ void BoundaryExchange::build_buffer_views_and_requests()
   // Check that the MpiBuffersManager is present and was setup with enough storage
   assert (m_buffers_manager);
 
-  assert (static_cast<int>(m_3d_nlev_pack.size()) == m_num_3d_fields);
-
   // Ask the buffer manager to check for reallocation and then proceed with the allocation (if needed)
   // Note: if BM already knows about our needs, and buffers were already allocated, then
   //       these two calls should not change the internal state of the BM
   m_buffers_manager->check_for_reallocation();
   m_buffers_manager->allocate_buffers();
+
+  assert (m_3d_nlev_pack.empty() ||
+          static_cast<int>(m_3d_nlev_pack.size()) == m_num_3d_fields);
 
   // We want to set the send/recv buffers to point to:
   //   - a portion of send/recv_buffer if info.sharing=SHARED
@@ -1034,13 +1037,14 @@ void BoundaryExchange::build_buffer_views_and_requests()
         h_buf_offset[info.sharing] += h_increment_2d[info.kind];
       }
       for (int ifield=0; ifield<m_num_3d_fields; ++ifield) {
+        const auto nlev_3d = m_3d_nlev_pack.empty() ? NUM_LEV : m_3d_nlev_pack[ifield];
         h_send_3d_buffers(local.lid, ifield, local.dir) = ExecViewUnmanaged<Scalar**>(
           reinterpret_cast<Scalar*>(send_buffer.get() + h_buf_offset[info.sharing]),
-          helpers.CONNECTION_SIZE[info.kind], m_3d_nlev_pack[ifield]);
+          helpers.CONNECTION_SIZE[info.kind], nlev_3d);
         h_recv_3d_buffers(local.lid, ifield, local.dir) = ExecViewUnmanaged<Scalar**>(
           reinterpret_cast<Scalar*>(recv_buffer.get() + h_buf_offset[info.sharing]),
-          helpers.CONNECTION_SIZE[info.kind], m_3d_nlev_pack[ifield]);
-        h_buf_offset[info.sharing] += h_increment_3d[info.kind]*m_3d_nlev_pack[ifield]*VECTOR_SIZE;
+          helpers.CONNECTION_SIZE[info.kind], nlev_3d);
+        h_buf_offset[info.sharing] += h_increment_3d[info.kind]*nlev_3d*VECTOR_SIZE;
       }
       for (int ifield=0; ifield<m_num_3d_int_fields; ++ifield) {
         h_send_3d_int_buffers(local.lid, ifield, local.dir) = ExecViewUnmanaged<Scalar**>(

@@ -260,6 +260,10 @@ private:
   // connection, it will point to the corresponding mpi buffer, and for missing
   // connection, it will point to the send/recv blackhole.
 
+  //#define AMB_BE
+#ifdef AMB_BE
+
+#else
   ExecViewManaged<ExecViewUnmanaged<Scalar[2][NUM_LEV]>**[NUM_CONNECTIONS]>  m_send_1d_buffers;
   ExecViewManaged<ExecViewUnmanaged<Scalar[2][NUM_LEV]>**[NUM_CONNECTIONS]>  m_recv_1d_buffers;
 
@@ -276,6 +280,7 @@ private:
   //       only one meaningful value (the rest is garbage, most likely nan's).
   ExecViewManaged<ExecViewUnmanaged<Scalar**>**[NUM_CONNECTIONS]>  m_send_3d_int_buffers;
   ExecViewManaged<ExecViewUnmanaged<Scalar**>**[NUM_CONNECTIONS]>  m_recv_3d_int_buffers;
+#endif
 
   // The number of registered fields
   int         m_num_1d_fields;    // Without counting the 2x factor due to min/max fields
