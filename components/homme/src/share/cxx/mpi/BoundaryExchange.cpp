@@ -222,6 +222,23 @@ void BoundaryExchange::registration_completed()
   // Determine what kind of BE is this (exchange or exchange_min_max)
   m_exchange_type = m_num_1d_fields>0 ? MPI_EXCHANGE_MIN_MAX : MPI_EXCHANGE;
 
+  // Finalize bookkeeping for any exchange on fewer than NUM_LEV levels.
+  {
+    bool need_nlev_pack = false;
+    for (int i = 0; i < m_num_3d_fields; ++i)
+      if (m_3d_nlev_pack[i] != NUM_LEV) {
+        assert(m_3d_nlev_pack[i] < NUM_LEV);
+        need_nlev_pack = true;
+        break;
+      }
+    if (need_nlev_pack) {
+      m_3d_nlev_pack_d = ExecViewManaged<int*>("m_3d_nlev_pack_d", m_3d_nlev_pack.size());
+      const auto h = Kokkos::create_mirror_view(m_3d_nlev_pack_d);
+      for (int i = 0; i < m_num_3d_fields; ++i) h(i) = m_3d_nlev_pack[i];
+      Kokkos::deep_copy(m_3d_nlev_pack_d, h);
+    }
+  }
+
   // Prohibit further registration of fields, and allow exchange
   m_registration_started   = false;
   m_registration_completed = true;
@@ -443,11 +460,15 @@ void BoundaryExchange::pack_and_send ()
   }
   // ...then pack 3d fields (if any)...
   if (m_num_3d_fields>0) {
-    pack<NUM_LEV, true>(connections, m_3d_fields, m_send_3d_buffers,
-                        m_num_elems, m_num_3d_fields, &m_3d_nlev_pack_d);
+    if (m_3d_nlev_pack_d.size() > 0)
+      pack<NUM_LEV, true>(connections, m_3d_fields, m_send_3d_buffers,
+                          m_num_elems, m_num_3d_fields, &m_3d_nlev_pack_d);
+    else
+      pack<NUM_LEV>(connections, m_3d_fields, m_send_3d_buffers,
+                    m_num_elems, m_num_3d_fields);
   }
   // ...then pack 3d interface fields (if any)
-  if (m_num_3d_int_fields>0) {
+  if (m_num_3d_int_fields > 0) {
     pack<NUM_LEV_P>(connections, m_3d_int_fields, m_send_3d_int_buffers,
                     m_num_elems, m_num_3d_int_fields);
   }
@@ -642,11 +663,15 @@ void BoundaryExchange::recv_and_unpack (const ExecViewUnmanaged<const Real * [NP
   }
   // ...then unpack 3d fields (if any)...
   if (m_num_3d_fields>0) {
-    unpack<NUM_LEV>(m_3d_fields, m_recv_3d_buffers, rspheremp,
-                    m_num_elems, m_num_3d_fields);
+    if (m_3d_nlev_pack_d.size() > 0)
+      unpack<NUM_LEV, true>(m_3d_fields, m_recv_3d_buffers, rspheremp,
+                            m_num_elems, m_num_3d_fields, &m_3d_nlev_pack_d);
+    else
+      unpack<NUM_LEV>(m_3d_fields, m_recv_3d_buffers, rspheremp,
+                      m_num_elems, m_num_3d_fields);
   }
   // ...then unpack 3d interface fields (if any).
-  if (m_num_3d_int_fields>0) {
+  if (m_num_3d_int_fields > 0) {
     unpack<NUM_LEV_P>(m_3d_int_fields, m_recv_3d_int_buffers, rspheremp,
                       m_num_elems, m_num_3d_int_fields);
   }
@@ -914,7 +939,7 @@ void BoundaryExchange::build_buffer_views_and_requests()
   // Check that the MpiBuffersManager is present and was setup with enough storage
   assert (m_buffers_manager);
 
-  assert(static_cast<int>(m_3d_nlev_pack.size()) == m_num_3d_fields);
+  assert (static_cast<int>(m_3d_nlev_pack.size()) == m_num_3d_fields);
 
   // Ask the buffer manager to check for reallocation and then proceed with the allocation (if needed)
   // Note: if BM already knows about our needs, and buffers were already allocated, then
@@ -1037,13 +1062,6 @@ void BoundaryExchange::build_buffer_views_and_requests()
   Kokkos::deep_copy(m_send_3d_int_buffers, h_send_3d_int_buffers);
   Kokkos::deep_copy(m_recv_3d_int_buffers, h_recv_3d_int_buffers);
 
-  m_3d_nlev_pack_d = ExecViewManaged<int*>("m_3d_nlev_pack_d", m_3d_nlev_pack.size());
-  {
-    const auto h = Kokkos::create_mirror_view(m_3d_nlev_pack_d);
-    for (int i = 0; i < m_num_3d_fields; ++i) h(i) = m_3d_nlev_pack[i];
-    Kokkos::deep_copy(m_3d_nlev_pack_d, h);
-  }
-  
 #ifndef NDEBUG
   // Sanity check: compute the buffers sizes for this boundary exchange, and
   // check that the final offsets match them.
@@ -1129,7 +1147,7 @@ void BoundaryExchange
     }
   };
 
-#if 0
+#ifdef AMB_BE
   const auto& ucon = m_connectivity->get_h_ucon();
   const auto& ucon_ptr = m_connectivity->get_h_ucon_ptr();
   const size_t nconn = ucon.size();
