@@ -914,8 +914,6 @@ void BoundaryExchange::build_buffer_views_and_requests()
   // Check that the MpiBuffersManager is present and was setup with enough storage
   assert (m_buffers_manager);
 
-  if (!(static_cast<int>(m_3d_nlev_pack.size()) == m_num_3d_fields))
-    pr(puf(m_3d_nlev_pack.size()) pu(m_num_3d_fields));
   assert(static_cast<int>(m_3d_nlev_pack.size()) == m_num_3d_fields);
 
   // Ask the buffer manager to check for reallocation and then proceed with the allocation (if needed)
@@ -924,24 +922,19 @@ void BoundaryExchange::build_buffer_views_and_requests()
   m_buffers_manager->check_for_reallocation();
   m_buffers_manager->allocate_buffers();
 
-  // Note: this may look cryptic, so I'll try to explain what's about to happen.
-  //       We want to set the send/recv buffers to point to:
-  //         - a portion of send/recv_buffer if info.sharing=SHARED
-  //         - a portion of local_buffer if info.sharing=LOCAL
-  //         - the blackhole_send/recv if info.sharing=MISSING
-  //       After reserving the buffer portion, update the offset by a given increment, depending on info.kind:
-  //         - increment[CORNER]  = m_elem_buf_size[CORNER)] = 1  * (m_num_2d_fields + NUM_LEV*VECTOR_SIZE m_num_3d_fields)
-  //         - increment[EDGE]    = m_elem_buf_size[EDGE)]   = NP * (m_num_2d_fields + NUM_LEV*VECTOR_SIZE m_num_3d_fields)
-  //         - increment[MISSING] = 0 (point to the same blackhole)
-  // Note: m_blackhole_send will be written many times, but will never be read from.
-  //       Kind of like streaming to /dev/null. blackhole_recv will be read from sometimes
-  //       (24 times, to be precise, one for each of the 3 corner connections on each of the
-  //       cube's vertices), but it's never written into, so will always contain zeros (set by the constructor).
+  // We want to set the send/recv buffers to point to:
+  //   - a portion of send/recv_buffer if info.sharing=SHARED
+  //   - a portion of local_buffer if info.sharing=LOCAL
+  //   - the blackhole_send/recv if info.sharing=MISSING
+  // After reserving the buffer portion, update the offset by a given increment, depending on info.kind:
+  //   - increment[CORNER]  = m_elem_buf_size[CORNER)] = 1  * (m_num_2d_fields + NUM_LEV*VECTOR_SIZE m_num_3d_fields)
+  //   - increment[EDGE]    = m_elem_buf_size[EDGE)]   = NP * (m_num_2d_fields + NUM_LEV*VECTOR_SIZE m_num_3d_fields)
+  //   - increment[MISSING] = 0 (point to the same blackhole)
 
   HostViewManaged<size_t[3]> h_buf_offset("");
   Kokkos::deep_copy(h_buf_offset, 0);
 
-  // The amount of Real's used in a connection on a single level:
+  // The number of Reals used in a connection on a single level:
   //  - 2d/3d field exchange 1 Real per GP
   //  - 1d fields exchange 2 Real per level (max/min over element)
   HostViewManaged<int[3]> h_increment_1d("increment_1d");
@@ -954,7 +947,6 @@ void BoundaryExchange::build_buffer_views_and_requests()
   h_increment_2d[etoi(ConnectionKind::MISSING)] =  0;
   HostViewManaged<int[3]> h_increment_3d = h_increment_2d;
 
-  // Since we access the manager many times, we may as well call lock once and store the shared_ptr.
   auto buffers_manager = m_buffers_manager;
 
   using local_buf_ptr_type = decltype( buffers_manager->get_local_buffer().data());
@@ -1128,15 +1120,33 @@ void BoundaryExchange
   std::vector<int>& pids, std::vector<int>& pid_offsets)
 {
   struct IP {
-    int i, ord, pid;
+    size_t i, ord;
+    int pid;
     bool operator< (const IP& o) const {
       if (pid < o.pid) return true;
       if (pid > o.pid) return false;
       return ord < o.ord;
     }
   };
-  std::vector<IP> i2remote(m_num_elems*NUM_CONNECTIONS);
 
+#if 0
+  const auto& ucon = m_connectivity->get_h_ucon();
+  const auto& ucon_ptr = m_connectivity->get_h_ucon_ptr();
+  const size_t nconn = ucon.size();
+  const int nle = m_num_elems; // number of local elements
+  const int mce = m_connectivity->get_max_corner_elements();
+  const int max_num_conn_per_elem = 4*(mce + 1);
+  std::vector<IP> i2remote (nconn);
+
+  for (int ie = 0; ie < nle; ++ie)
+    for (int k = ucon_ptr(ie); k < ucon_ptr(ie+1); ++k) {
+      const auto& info = ucon(k);
+      
+    }
+
+#else
+  
+  std::vector<IP> i2remote (m_num_elems*NUM_CONNECTIONS);
   const auto& connections = m_connectivity->get_connections<HostMemSpace>();
   for (int ie = 0; ie < m_num_elems; ++ie)
     for (int iconn = 0; iconn < NUM_CONNECTIONS; ++iconn) {
@@ -1182,6 +1192,7 @@ void BoundaryExchange
     slot_idx_to_elem_conn_pair[k] = ie*NUM_CONNECTIONS + iconn;
   }
   pid_offsets.push_back(m_num_elems*NUM_CONNECTIONS);
+#endif
 }
 
 void BoundaryExchange::clear_buffer_views_and_requests ()

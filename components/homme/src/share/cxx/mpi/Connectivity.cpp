@@ -140,6 +140,12 @@ void Connectivity::add_connection (
     }
 
     ++h_num_connections(info.sharing,info.kind);
+
+    ucon_info.push_back(
+      UConInfo{local.lid, local.gid, remote.lid, remote.gid,
+               info.remote_pid,
+               local.dir, local.dir_idx, remote.dir, remote.dir_idx,
+               info.kind, info.sharing, info.direction});
   }
 }
 
@@ -180,7 +186,134 @@ void Connectivity::finalize(const bool sanity_check)
   Kokkos::deep_copy(m_connections, h_connections);
   Kokkos::deep_copy(m_num_connections, h_num_connections);
 
+  setup_ucon();
+
   m_finalized = true;
+}
+
+bool Connectivity::UConInfo::operator< (const UConInfo& o) const {
+  // We need to sort on local (L/G)ID.
+  if (l_gid < o.l_gid) return true;
+  if (l_gid > o.l_gid) return false;
+  // The rest of the sorting is optional.
+  if (l_dir < o.l_dir) return true;
+  if (l_dir > o.l_dir) return false;
+  if (l_dir_idx < o.l_dir_idx) return true;
+  if (l_dir_idx > o.l_dir_idx) return false;
+  if (r_pid < o.r_pid) return true;
+  if (r_pid > o.r_pid) return false;
+  return r_gid < o.r_gid;
+}
+
+void Connectivity::setup_ucon () {
+  const size_t nconn = ucon_info.size();
+  fprintf(stderr,"amb> nconn %d nle %d\n", int(nconn), int(m_num_local_elements));
+
+  d_ucon = decltype(d_ucon)("Unstructured Connections", nconn);
+  d_ucon_ptr = decltype(d_ucon_ptr)("Unstructured Connections Ptr", m_num_local_elements+1);
+  h_ucon = Kokkos::create_mirror_view(d_ucon);
+  h_ucon_ptr = Kokkos::create_mirror_view(d_ucon_ptr);
+
+  h_ucon_ptr(0) = 0;
+  h_ucon_ptr(m_num_local_elements) = nconn;
+  if (nconn == 0) return;
+
+  // Sort by local GID.
+  std::sort(ucon_info.begin(), ucon_info.end());
+
+  { // Set up pointers into ucon.
+    int ie = 0;
+    auto l_gid_curr = ucon_info[ie].l_gid;
+    for (size_t i = 0; i < nconn; ++i) {
+      assert(ie < m_num_local_elements);
+      const auto& uci = ucon_info[i];
+      if (uci.l_gid != l_gid_curr) {
+        assert(l_gid_curr < uci.l_gid);
+        l_gid_curr = uci.l_gid;
+        ++ie;
+        h_ucon_ptr(ie) = i;
+      }
+    }
+    assert(ie == m_num_local_elements-1);
+  }
+
+  // Fill Info structs.
+  for (size_t i = 0; i < nconn; ++i) {
+    const auto& uci = ucon_info[i];
+    auto& info = h_ucon(i);
+    info.local.lid = uci.l_lid;
+    info.local.gid = uci.l_gid;
+    info.local.dir = uci.l_dir;
+    info.local.dir_idx = uci.l_dir_idx;
+    info.remote.lid = uci.r_lid;
+    info.remote.gid = uci.r_gid;
+    info.remote.dir = uci.r_dir;
+    info.remote.dir_idx = uci.r_dir_idx;
+    info.remote_pid = uci.r_pid;
+    info.kind = uci.kind;
+    info.sharing = uci.sharing;
+    info.direction = uci.direction;
+  }
+
+  Kokkos::deep_copy(d_ucon, h_ucon);
+  Kokkos::deep_copy(d_ucon_ptr, h_ucon_ptr);
+
+  // Clear memory.
+  ucon_info = decltype(ucon_info)();
+
+  {
+    /* Check that the connection counts are OK.
+         Let max_elements_attached_to_node be the number of elements attached to
+       an element corner. For example, in a regular planar mesh, it's 4. for RRM
+       it's <= 7, as established in src/share/dimensions_mod.F90.
+         Let max_corner_elem be the max number of elements attached to a corner
+       that are not accounted for by the two edges and the parent element. Thus,
+         max_corner_elem
+             = max_elements_attached_to_node - (2 edge elements) - (1 parent element)
+             = max_elements_attached_to_node - 3.
+         Let max_neigh_edges be the max number of connections to an element:
+           max_neigh_edges =   4*max_elements_attached_to_node
+                             - 4*(1 edge element/corner to avoid duplication)
+                             - 4*(1 parent element)
+             = 4*max_elements_attached_to_node - 8.
+    */
+    const int max_elements_attached_to_node = 7;
+    std::string msg;
+    bool ok = true;
+    if (m_max_corner_elements > max_elements_attached_to_node - 3) {
+      msg = std::string("m_max_corner_elements is ")
+        + std::to_string(m_max_corner_elements) + " but should be <= 7.\n";
+      ok = false;
+    }
+    int max_conn_per_elem = 0; // our name for 'max_neigh_edges'
+    for (int ie = 0; ie < m_num_local_elements; ++ie)
+      max_conn_per_elem = std::max(max_conn_per_elem,
+                                   h_ucon_ptr(ie+1) - h_ucon_ptr(ie));
+    if (max_conn_per_elem > 4*max_elements_attached_to_node - 8) {
+      const auto msg = std::string("max_conn_per_elem is ")
+        + std::to_string(max_conn_per_elem) + " but should be <= 4*"
+        + std::to_string(max_elements_attached_to_node) + " - 8.\n";
+      ok = false;
+    }
+    for (int ie = 0; ie < m_num_local_elements; ++ie) {
+      std::uint8_t max_corner_elem = 0;
+      for (int k = h_ucon_ptr(ie); k < h_ucon_ptr(ie+1); ++k)
+        max_corner_elem = std::max(max_corner_elem,
+                                   h_ucon(k).local.dir_idx);
+      if (max_corner_elem > m_max_corner_elements) {
+        const auto msg = std::string("m_max_corner_elements is ")
+          + std::to_string(m_max_corner_elements)
+          + "but LID ie has " + std::to_string(static_cast<int>(max_corner_elem))
+          + "\n";
+        ok = false;
+        break;
+      }
+    }
+    if ( ! ok)
+      Errors::runtime_abort(
+        std::string("Connectivity::setup_ucon: At least one connection"
+                    " count is wrong:\n") + msg);
+  }
 }
 
 void Connectivity::clean_up()
@@ -190,9 +323,13 @@ void Connectivity::clean_up()
 
   // Cleaning up also the host mirrors
   Kokkos::deep_copy(h_connections, m_connections);
+  // Cleaning the elements counter
   Kokkos::deep_copy(h_num_connections,0);
 
-  // Cleaning the elements counter
+  d_ucon = decltype(d_ucon)("", 0);
+  h_ucon = decltype(h_ucon)("", 0);
+  d_ucon_ptr = decltype(d_ucon_ptr)("", 0);
+  h_ucon_ptr = decltype(h_ucon_ptr)("", 0);
 
   m_initialized = false;
   m_finalized   = false;

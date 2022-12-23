@@ -91,6 +91,11 @@ public:
                  ExecViewUnmanaged<const ConnectionInfo*[NUM_CONNECTIONS]>>::type
   get_connections () const { return m_connections; }
 
+  const ExecViewUnmanaged<const ConnectionInfo*> get_d_ucon () const { return d_ucon; }
+  const ExecViewUnmanaged<const int*> get_d_ucon_ptr () const { return d_ucon_ptr; }
+  const HostViewUnmanaged<const ConnectionInfo*> get_h_ucon () const { return h_ucon; }
+  const HostViewUnmanaged<const int*> get_h_ucon_ptr () const { return h_ucon_ptr; }
+
   // Get a particular connection
   template<typename MemSpace>
   KOKKOS_INLINE_FUNCTION
@@ -148,6 +153,25 @@ private:
 
   ExecViewManaged<ConnectionInfo*[NUM_CONNECTIONS]>             m_connections;
   ExecViewManaged<ConnectionInfo*[NUM_CONNECTIONS]>::HostMirror h_connections;
+
+  // Unstructured connections to handle RRM case. Connections for an element
+  // having local ID ie are
+  //   ucon(ucon_ptr(ie)):ucon(ucon_ptr(ie+1)-1).
+  ExecViewManaged<ConnectionInfo*>             d_ucon;
+  ExecViewManaged<ConnectionInfo*>::HostMirror h_ucon;
+  ExecViewManaged<int*>             d_ucon_ptr;
+  ExecViewManaged<int*>::HostMirror h_ucon_ptr;
+  // Helper used to accumulated connections during add_connection phase. Emptied
+  // in finalize. l_ is local; r_ is remote.
+  struct UConInfo {
+    int l_lid, l_gid, r_lid, r_gid, r_pid;
+    std::uint8_t l_dir, l_dir_idx, r_dir, r_dir_idx, kind, sharing, direction;
+    bool operator< (const UConInfo& o) const;
+  };
+  std::vector<UConInfo> ucon_info;
+  // In finalize call, construct the unstructured connectivity data using
+  // ucon_info.
+  void setup_ucon();
 };
 
 } // namespace Homme
