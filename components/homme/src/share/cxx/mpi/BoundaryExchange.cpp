@@ -438,6 +438,9 @@ void BoundaryExchange::pack_and_send ()
   }
 
   // ---- Pack ---- //
+#ifdef AMB_BE
+# pragma message "todo"
+#else
   // First, pack 2d fields (if any)...
   auto connections = m_connectivity->get_connections<ExecMemSpace>();
   if (m_num_2d_fields>0) {
@@ -474,6 +477,7 @@ void BoundaryExchange::pack_and_send ()
     pack<NUM_LEV_P>(connections, m_3d_int_fields, m_send_3d_int_buffers,
                     m_num_elems, m_num_3d_int_fields);
   }
+#endif
   Kokkos::fence();
 
   // ---- Send ---- //
@@ -640,6 +644,9 @@ void BoundaryExchange::recv_and_unpack (const ExecViewUnmanaged<const Real * [NP
   tstop("be recv_and_unpack book");
 
   // --- Unpack --- //
+#ifdef AMB_BE
+# pragma message "todo"
+#else
   // First, unpack 2d fields (if any)...
   if (m_num_2d_fields>0) {
     auto fields_2d = m_2d_fields;
@@ -677,6 +684,7 @@ void BoundaryExchange::recv_and_unpack (const ExecViewUnmanaged<const Real * [NP
     unpack<NUM_LEV_P>(m_3d_int_fields, m_recv_3d_int_buffers, rspheremp,
                       m_num_elems, m_num_3d_int_fields);
   }
+#endif
   Kokkos::fence();
 
   // If another BE structure starts an exchange, it has no way to check that
@@ -738,6 +746,9 @@ void BoundaryExchange::pack_and_send_min_max ()
   auto send_1d_buffers = m_send_1d_buffers;
 
   // ---- Pack ---- //
+#ifdef AMB_BE
+# pragma message "todo"
+#else
   const auto num_1d_fields = m_num_1d_fields;
   if (OnGpu<ExecSpace>::value) {
     Kokkos::parallel_for(
@@ -797,6 +808,7 @@ void BoundaryExchange::pack_and_send_min_max ()
         }
       });
   }
+#endif
   Kokkos::fence();
 
   // ---- Send ---- //
@@ -851,6 +863,9 @@ void BoundaryExchange::recv_and_unpack_min_max ()
   auto recv_1d_buffers = m_recv_1d_buffers;
 
   // --- Unpack --- //
+#ifdef AMB_BE
+# pragma message "todo"
+#else
   const auto num_1d_fields = m_num_1d_fields;
   if (OnGpu<ExecSpace>::value) {
     Kokkos::parallel_for(
@@ -915,6 +930,7 @@ void BoundaryExchange::recv_and_unpack_min_max ()
         }
       });
   }
+#endif
   Kokkos::fence();
 
   // If another BE structure starts an exchange, it has no way to check that
@@ -989,6 +1005,13 @@ void BoundaryExchange::build_buffer_views_and_requests()
   h_all_recv_buffers[etoi(ConnectionSharing::SHARED)]  = buffers_manager->get_recv_buffer().data();
   h_all_recv_buffers[etoi(ConnectionSharing::MISSING)] = buffers_manager->get_blackhole_recv_buffer().data();
 
+  std::vector<int> slot_idx_to_elem_conn_pair, pids, pid_offsets;
+  init_slot_idx_to_elem_conn_pair(slot_idx_to_elem_conn_pair, pids, pid_offsets);
+
+#ifdef AMB_BE
+# pragma message "todo"
+# pragma message "move deep_copy's below outside of #endif"
+#else
   // Create buffer views
   m_send_1d_buffers = decltype(m_send_1d_buffers)("1d send buffer", m_num_elems, m_num_1d_fields);
   m_recv_1d_buffers = decltype(m_recv_1d_buffers)("1d recv buffer", m_num_elems, m_num_1d_fields);
@@ -998,9 +1021,6 @@ void BoundaryExchange::build_buffer_views_and_requests()
   m_recv_3d_buffers = decltype(m_recv_3d_buffers)("3d recv buffer", m_num_elems, m_num_3d_fields);
   m_send_3d_int_buffers = decltype(m_send_3d_int_buffers)("3d interface send buffer", m_num_elems, m_num_3d_int_fields);
   m_recv_3d_int_buffers = decltype(m_recv_3d_int_buffers)("3d interface recv buffer", m_num_elems, m_num_3d_int_fields);
-
-  std::vector<int> slot_idx_to_elem_conn_pair, pids, pid_offsets;
-  init_slot_idx_to_elem_conn_pair(slot_idx_to_elem_conn_pair, pids, pid_offsets);
 
   ConnectionHelpers helpers;
   auto h_send_1d_buffers = Kokkos::create_mirror_view(m_send_1d_buffers);
@@ -1065,6 +1085,7 @@ void BoundaryExchange::build_buffer_views_and_requests()
   Kokkos::deep_copy(m_recv_3d_buffers, h_recv_3d_buffers);
   Kokkos::deep_copy(m_send_3d_int_buffers, h_send_3d_int_buffers);
   Kokkos::deep_copy(m_recv_3d_int_buffers, h_recv_3d_int_buffers);
+#endif
 
 #ifndef NDEBUG
   // Sanity check: compute the buffers sizes for this boundary exchange, and
@@ -1099,10 +1120,14 @@ void BoundaryExchange::build_buffer_views_and_requests()
     for (int ip = 0; ip < npids; ++ip) {
       int count = 0;
       for (int k = pid_offsets[ip]; k < pid_offsets[ip+1]; ++k) {
+#ifdef AMB_BE
+# pragma message "todo"
+#else
         const int ie = slot_idx_to_elem_conn_pair[k] / NUM_CONNECTIONS;
         const int iconn = slot_idx_to_elem_conn_pair[k] % NUM_CONNECTIONS;
         const ConnectionInfo& info = connections(ie, iconn);
         count += m_elem_buf_size[info.kind];
+#endif
       }
       HOMMEXX_MPI_CHECK_ERROR(MPI_Send_init(send_ptr + offset, count, MPI_DOUBLE,
                                             pids[ip], m_exchange_type, mpi_comm,
@@ -1160,10 +1185,10 @@ void BoundaryExchange
   const int n_idx_per_elem = 8*mce;
   std::vector<IP> i2remote(nconn);
 
-  for (int k = 0; k < nconn; ++k) {
+  for (size_t k = 0; k < nconn; ++k) {
     const auto& info = ucon(k);
     auto& i2r = i2remote[k];
-    // Original sequence through (element, connection) pairs.
+    // Original sequence through connections.
     i2r.i = k;
     // An ordering of the message buffer upon which both members of the
     // communication pair agree.
@@ -1175,29 +1200,27 @@ void BoundaryExchange
       i2r.pid = info.remote_pid;
   }
 
-  // Sort so that, first, all (element, connection) pairs having the same
-  // remote_pid are contiguous; second, within such a block, ord is
-  // ascending. The first lets us set up comm buffers so monolithic messages
-  // slot right in. The second means that the send and recv partners agree on
-  // how the monolithic message is packed.
+  // Sort so that, first, all connections having the same remote_pid are
+  // contiguous; second, within such a block, ord is ascending. The first lets
+  // us set up comm buffers so monolithic messages slot right in. The second
+  // means that the send and recv partners agree on how a monolithic message is
+  // packed.
   std::sort(i2remote.begin(), i2remote.end());
 
   // Collect the unique remote_pids and get the offsets of the contiguous blocks
   // of them.
-  slot_idx_to_elem_conn_pair.resize(m_num_elems*NUM_CONNECTIONS);
+  slot_idx_to_elem_conn_pair.resize(nconn);
   pids.clear();
   pid_offsets.clear();
   int prev_pid = -2;
-  for (int k = 0; k < m_num_elems*NUM_CONNECTIONS; ++k) {
+  for (size_t k = 0; k < nconn; ++k) {
     const auto& i2r = i2remote[k];
     if (i2r.pid > prev_pid && i2r.pid != -1) {
       pids.push_back(i2r.pid);
       pid_offsets.push_back(k);
       prev_pid = i2r.pid;
     }
-    const int ie = i2r.i / NUM_CONNECTIONS;
-    const int iconn = i2r.i % NUM_CONNECTIONS;
-    slot_idx_to_elem_conn_pair[k] = ie*NUM_CONNECTIONS + iconn;
+    slot_idx_to_elem_conn_pair[k] = i2r.i;
   }
   pid_offsets.push_back(m_num_elems*NUM_CONNECTIONS);
 
