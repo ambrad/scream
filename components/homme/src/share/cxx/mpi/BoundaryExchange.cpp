@@ -8,14 +8,13 @@
 
 #include "MpiBuffersManager.hpp"
 #include "KernelVariables.hpp"
+#include "ErrorDefs.hpp"
 #include "profiling.hpp"
 
 #include "utilities/VectorUtils.hpp"
 
 #define tstart(x)
 #define tstop(x)
-
-#include "/home/ac.ambradl/compy-goodies/util/dbg.hpp"
 
 namespace Homme
 {
@@ -1009,8 +1008,69 @@ void BoundaryExchange::build_buffer_views_and_requests()
   init_slot_idx_to_elem_conn_pair(slot_idx_to_elem_conn_pair, pids, pid_offsets);
 
 #ifdef AMB_BE
-# pragma message "todo"
-# pragma message "move deep_copy's below outside of #endif"
+  const auto& ucon = m_connectivity->get_h_ucon();
+  const size_t nconn = ucon.size();
+  
+  m_send_1d_buffers = decltype(m_send_1d_buffers)("1d send buffer", m_num_1d_fields, nconn);
+  m_recv_1d_buffers = decltype(m_recv_1d_buffers)("1d recv buffer", m_num_1d_fields, nconn);
+  m_send_2d_buffers = decltype(m_send_2d_buffers)("2d send buffer", m_num_2d_fields, nconn);
+  m_recv_2d_buffers = decltype(m_recv_2d_buffers)("2d recv buffer", m_num_2d_fields, nconn);
+  m_send_3d_buffers = decltype(m_send_3d_buffers)("3d send buffer", m_num_3d_fields, nconn);
+  m_recv_3d_buffers = decltype(m_recv_3d_buffers)("3d recv buffer", m_num_3d_fields, nconn);
+  m_send_3d_int_buffers = decltype(m_send_3d_int_buffers)("3d interface send buffer", m_num_3d_int_fields, nconn);
+  m_recv_3d_int_buffers = decltype(m_recv_3d_int_buffers)("3d interface recv buffer", m_num_3d_int_fields, nconn);
+  const auto h_send_1d_buffers = Kokkos::create_mirror_view(m_send_1d_buffers);
+  const auto h_recv_1d_buffers = Kokkos::create_mirror_view(m_recv_1d_buffers);
+  const auto h_send_2d_buffers = Kokkos::create_mirror_view(m_send_2d_buffers);
+  const auto h_recv_2d_buffers = Kokkos::create_mirror_view(m_recv_2d_buffers);
+  const auto h_send_3d_buffers = Kokkos::create_mirror_view(m_send_3d_buffers);
+  const auto h_recv_3d_buffers = Kokkos::create_mirror_view(m_recv_3d_buffers);
+  const auto h_send_3d_int_buffers = Kokkos::create_mirror_view(m_send_3d_int_buffers);
+  const auto h_recv_3d_int_buffers = Kokkos::create_mirror_view(m_recv_3d_int_buffers);
+
+  ConnectionHelpers helpers;
+  for (size_t k = 0; k < nconn; ++k) {
+    // Map from MPI buffer index space to (elem, connection) index space.
+    const auto i = slot_idx_to_elem_conn_pair[k];
+    const auto& info = ucon(k);
+
+    auto& send_buffer = h_all_send_buffers[info.sharing];
+    auto& recv_buffer = h_all_recv_buffers[info.sharing];
+
+    for (int f = 0; f < m_num_1d_fields; ++f) {
+      h_send_1d_buffers(f, i) = ExecViewUnmanaged<Scalar[2][NUM_LEV]>(
+        reinterpret_cast<Scalar*>(send_buffer.get() + h_buf_offset[info.sharing]));
+      h_recv_1d_buffers(f, i) = ExecViewUnmanaged<Scalar[2][NUM_LEV]>(
+        reinterpret_cast<Scalar*>(recv_buffer.get() + h_buf_offset[info.sharing]));
+      h_buf_offset[info.sharing] += h_increment_1d[info.kind]*NUM_LEV*VECTOR_SIZE;
+    }
+    for (int f = 0; f < m_num_2d_fields; ++f) {
+      h_send_2d_buffers(f, i) = ExecViewUnmanaged<Real*>(
+        send_buffer.get() + h_buf_offset[info.sharing], helpers.CONNECTION_SIZE[info.kind]);
+      h_recv_2d_buffers(f, i) = ExecViewUnmanaged<Real*>(
+        recv_buffer.get() + h_buf_offset[info.sharing], helpers.CONNECTION_SIZE[info.kind]);
+      h_buf_offset[info.sharing] += h_increment_2d[info.kind];
+    }
+    for (int f = 0; f < m_num_3d_fields; ++f) {
+      const auto nlev_3d = m_3d_nlev_pack.empty() ? NUM_LEV : m_3d_nlev_pack[f];
+      h_send_3d_buffers(f, i) = ExecViewUnmanaged<Scalar**>(
+        reinterpret_cast<Scalar*>(send_buffer.get() + h_buf_offset[info.sharing]),
+        helpers.CONNECTION_SIZE[info.kind], nlev_3d);
+      h_recv_3d_buffers(f, i) = ExecViewUnmanaged<Scalar**>(
+        reinterpret_cast<Scalar*>(recv_buffer.get() + h_buf_offset[info.sharing]),
+        helpers.CONNECTION_SIZE[info.kind], nlev_3d);
+      h_buf_offset[info.sharing] += h_increment_3d[info.kind]*nlev_3d*VECTOR_SIZE;
+    }
+    for (int f = 0; f < m_num_3d_int_fields; ++f) {
+      h_send_3d_int_buffers(f, i) = ExecViewUnmanaged<Scalar**>(
+        reinterpret_cast<Scalar*>(send_buffer.get() + h_buf_offset[info.sharing]),
+        helpers.CONNECTION_SIZE[info.kind], NUM_LEV_P);
+      h_recv_3d_int_buffers(f, i) = ExecViewUnmanaged<Scalar**>(
+        reinterpret_cast<Scalar*>(recv_buffer.get() + h_buf_offset[info.sharing]),
+        helpers.CONNECTION_SIZE[info.kind], NUM_LEV_P);
+      h_buf_offset[info.sharing] += h_increment_3d[info.kind]*NUM_LEV_P*VECTOR_SIZE;
+    }
+  }
 #else
   // Create buffer views
   m_send_1d_buffers = decltype(m_send_1d_buffers)("1d send buffer", m_num_elems, m_num_1d_fields);
@@ -1077,6 +1137,7 @@ void BoundaryExchange::build_buffer_views_and_requests()
       }
     }
   }
+#endif
   Kokkos::deep_copy(m_send_1d_buffers, h_send_1d_buffers);
   Kokkos::deep_copy(m_recv_1d_buffers, h_recv_1d_buffers);
   Kokkos::deep_copy(m_send_2d_buffers, h_send_2d_buffers);
@@ -1085,7 +1146,6 @@ void BoundaryExchange::build_buffer_views_and_requests()
   Kokkos::deep_copy(m_recv_3d_buffers, h_recv_3d_buffers);
   Kokkos::deep_copy(m_send_3d_int_buffers, h_send_3d_int_buffers);
   Kokkos::deep_copy(m_recv_3d_int_buffers, h_recv_3d_int_buffers);
-#endif
 
 #ifndef NDEBUG
   // Sanity check: compute the buffers sizes for this boundary exchange, and
@@ -1108,8 +1168,7 @@ void BoundaryExchange::build_buffer_views_and_requests()
 #endif // NDEBUG
 
   {
-    auto mpi_comm = m_connectivity->get_comm().mpi_comm();
-    const auto& connections = m_connectivity->get_connections<HostMemSpace>();
+    const auto mpi_comm = m_connectivity->get_comm().mpi_comm();
     const int npids = pids.size();
     free_requests();
     m_send_requests.resize(npids);
@@ -1121,13 +1180,14 @@ void BoundaryExchange::build_buffer_views_and_requests()
       int count = 0;
       for (int k = pid_offsets[ip]; k < pid_offsets[ip+1]; ++k) {
 #ifdef AMB_BE
-# pragma message "todo"
+        const auto i = slot_idx_to_elem_conn_pair[k];
+        const auto& info = ucon(i);
 #else
         const int ie = slot_idx_to_elem_conn_pair[k] / NUM_CONNECTIONS;
         const int iconn = slot_idx_to_elem_conn_pair[k] % NUM_CONNECTIONS;
-        const ConnectionInfo& info = connections(ie, iconn);
-        count += m_elem_buf_size[info.kind];
+        const ConnectionInfo& info = h_connections(ie, iconn);
 #endif
+        count += m_elem_buf_size[info.kind];
       }
       HOMMEXX_MPI_CHECK_ERROR(MPI_Send_init(send_ptr + offset, count, MPI_DOUBLE,
                                             pids[ip], m_exchange_type, mpi_comm,
@@ -1143,6 +1203,10 @@ void BoundaryExchange::build_buffer_views_and_requests()
 
   // Now the buffer views and the requests are built
   m_buffer_views_and_requests_built = true;
+
+#ifdef AMB_BE
+  Errors::runtime_abort("run up to this point");
+#endif
 }
 
 void BoundaryExchange
