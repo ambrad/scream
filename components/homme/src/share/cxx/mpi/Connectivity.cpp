@@ -338,6 +338,25 @@ void Connectivity::setup_ucon () {
         std::string("Connectivity::setup_ucon: At least one connection"
                     " count is wrong:\n") + msg);
   }
+
+  {
+    // Check that each element has four edge connections ordered S, N, W, E
+    // before any of the corners. This assumption would have to be relaxed to
+    // support domains with nonperiodic boundaries.
+    //   Code that uses this assumption is tagged "assume:conn-edges-snwe".
+    ConnectionHelpers h;
+    for (int ie = 0; ie < m_num_local_elements; ++ie) {
+      const int k = h_ucon_ptr(ie);
+      bool ok = true;
+      for (int i = 0; i < 4; ++i)
+        ok = (ok &&
+              h_ucon(k+i).kind == etoi(ConnectionKind::EDGE) &&
+              h_ucon(k+i).local.dir == h.UNPACK_EDGES_ORDER[i]);
+      if ( ! ok)
+        Errors::runtime_abort("Connectivity::setup_ucon: Element's first four"
+                              " connections are not edges in S, N, W, E order.");
+    }
+  }
 }
 
 void Connectivity::clean_up()

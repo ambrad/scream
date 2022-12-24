@@ -499,14 +499,14 @@ void BoundaryExchange::pack_and_send ()
 
   // ---- Pack ---- //
 #ifdef AMB_BE
-# pragma message "in progress"
-  // First, pack 2d fields (if any)...
   const auto& ucon = m_connectivity->get_d_ucon();
   const auto& ucon_ptr = m_connectivity->get_d_ucon_ptr();
+  // First, pack 2d fields (if any)...
   if (m_num_2d_fields > 0) {
     auto fields_2d = m_2d_fields;
     auto send_2d_buffers = m_send_2d_buffers;
     const ConnectionHelpers helpers;
+# pragma message "todo"
     Errors::runtime_abort("todo 2D fields");
   }
   // ...then pack 3d fields (if any)...
@@ -563,10 +563,6 @@ void BoundaryExchange::pack_and_send ()
 #endif
   Kokkos::fence();
 
-#ifdef AMB_BE
-  Errors::runtime_abort("up to here");
-#endif
-
   // ---- Send ---- //
   tstart("be sync_send_buffer");
   m_buffers_manager->sync_send_buffer(this); // Deep copy send_buffer into mpi_send_buffer (no op if MPI is on device)
@@ -583,6 +579,75 @@ void BoundaryExchange::pack_and_send ()
 
 void BoundaryExchange::recv_and_unpack () {
   recv_and_unpack(nullptr);
+}
+
+// assume:conn-edges-snwe
+template <int NUM_LEV_PACKS, bool partial_column=false>
+static void
+unpack (const ExecViewUnmanaged<const ConnectionInfo*> ucon,
+        const ExecViewUnmanaged<const int*> ucon_ptr,
+        const ExecViewManaged<ExecViewManaged<Scalar[NP][NP][NUM_LEV_PACKS]>**> fields_3d,
+        const ExecViewManaged<ExecViewUnmanaged<Scalar**>**> recv_3d_buffers,
+        const ExecViewUnmanaged<const Real * [NP][NP]>* rspheremp,
+        const int num_elems, const int num_3d_fields,
+        ExecViewManaged<int*>* nlev_packs_ = nullptr) {
+  assert(partial_column == (nlev_packs_ != nullptr));
+  if (partial_column) assert(nlev_packs_->extent_int(0) == num_3d_fields);
+  ExecViewUnmanaged<const int*> nlev_packs;
+  if (partial_column) nlev_packs = *nlev_packs_;
+  if (OnGpu<ExecSpace>::value) {
+    const ConnectionHelpers helpers;
+# pragma message "GPU todo"
+  } else {
+    const auto num_parallel_iterations = num_elems*num_3d_fields;
+    Kokkos::parallel_for(
+      Kokkos::TeamPolicy<ExecSpace>(num_parallel_iterations, 1, NUM_LEV_PACKS),
+      KOKKOS_LAMBDA(const TeamMember& team) {
+        Homme::KernelVariables kv(team, num_3d_fields);
+        const int ie = kv.ie;
+        const int ifield = kv.iq;
+        const auto tvr = Kokkos::ThreadVectorRange(
+          kv.team, partial_column ? nlev_packs(ifield) : NUM_LEV_PACKS);
+        const auto& f3 = fields_3d(ie, ifield);
+        const auto iconn_beg = ucon_ptr(ie), iconn_end = ucon_ptr(ie+1);
+        const auto ef = [&] (const int& iedge, const int& k, const int& ip, const int& jp) {
+          const auto& r3 = recv_3d_buffers(ifield, iconn_beg + iedge);
+          auto* const f3p = &f3(ip, jp, 0);
+          const auto* const r3p = &r3(k, 0);
+          Kokkos::parallel_for(tvr, [&] (const int& ilev) { f3p[ilev] += r3p[ilev]; });
+        };
+        for (int k = 0; k < NP; ++k) {
+          ef(0, k, 0,    k   );
+          ef(1, k, NP-1, k   );
+          ef(2, k, k,    0   );
+          ef(3, k, k,    NP-1);
+        }
+        const auto cf = [&] (const int& iconn, const int& ip, const int& jp) {
+          const auto& r3 = recv_3d_buffers(ifield, iconn);
+          if (r3.size() == 0) return;
+          auto* const f3p = &f3(ip, jp, 0);
+          const auto* const r3p = &r3(0, 0);
+          Kokkos::parallel_for(tvr, [&] (const int& ilev) { f3p[ilev] += r3p[ilev]; });
+        };
+        for (int iconn = iconn_beg + 4; iconn < iconn_end; ++iconn) {
+          switch (ucon(iconn).local.dir) {
+          case 4: cf(iconn, 0,    0   ); break;
+          case 5: cf(iconn, 0,    NP-1); break;
+          case 6: cf(iconn, NP-1, 0   ); break;
+          case 7: cf(iconn, NP-1, NP-1); break;
+          default: assert(false);
+          }
+        }
+        if (rspheremp) {
+          for (int i = 0; i < NP; ++i)
+            for (int j = 0; j < NP; ++j) {
+              auto* const f3p = &f3(i, j, 0);
+              const auto& rsmp = (*rspheremp)(ie, i, j);
+              Kokkos::parallel_for(tvr, [&] (const int& ilev) { f3p[ilev] *= rsmp; });
+            }
+        }
+      });
+  }
 }
 
 template <int NUM_LEV_PACKS, bool partial_column=false>
@@ -732,7 +797,30 @@ void BoundaryExchange::recv_and_unpack (const ExecViewUnmanaged<const Real * [NP
 
   // --- Unpack --- //
 #ifdef AMB_BE
+  const auto& ucon = m_connectivity->get_d_ucon();
+  const auto& ucon_ptr = m_connectivity->get_d_ucon_ptr();
+  // First, unpack 2d fields (if any)...
+  if (m_num_2d_fields>0) {
+    auto fields_2d = m_2d_fields;
+    auto recv_2d_buffers = m_recv_2d_buffers;
+    const ConnectionHelpers helpers;
 # pragma message "todo"
+    Errors::runtime_abort("todo 2D fields");
+  }
+  // ...then unpack 3d fields (if any)...
+  if (m_num_3d_fields>0) {
+    if (m_3d_nlev_pack_d.size() > 0)
+      unpack<NUM_LEV, true>(ucon, ucon_ptr, m_3d_fields, m_recv_3d_buffers, rspheremp,
+                            m_num_elems, m_num_3d_fields, &m_3d_nlev_pack_d);
+    else
+      unpack<NUM_LEV>(ucon, ucon_ptr, m_3d_fields, m_recv_3d_buffers, rspheremp,
+                      m_num_elems, m_num_3d_fields);
+  }
+  // ...then unpack 3d interface fields (if any).
+  if (m_num_3d_int_fields > 0) {
+    unpack<NUM_LEV_P>(ucon, ucon_ptr, m_3d_int_fields, m_recv_3d_int_buffers, rspheremp,
+                      m_num_elems, m_num_3d_int_fields);
+  }
 #else
   // First, unpack 2d fields (if any)...
   if (m_num_2d_fields>0) {

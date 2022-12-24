@@ -37,7 +37,9 @@ void init_connectivity (const int& num_local_elems, const int& max_corner_elems)
 
 // Extract dir (in 0:7) and dir_idx (in 0:max_corner_elements-1) from
 //     fpos = (dir+1)*max_corner_elems + dir_idx.
-static void convert (const int max_corner_elements, const int fpos, std::uint8_t& dir, std::uint8_t& dir_idx) {
+static void convert (const int max_corner_elements, const int fpos,
+                     std::uint8_t& dir, std::uint8_t& dir_idx)
+{
   assert(fpos > 0);
   assert(fpos < 9*max_corner_elements);
   dir = fpos / max_corner_elements - 1;
