@@ -94,15 +94,15 @@ public:
   // Unstructured connections to handle RRM case. Connections for an element
   // having local ID ie are
   //   ucon(ucon_ptr(ie)):ucon(ucon_ptr(ie+1)-1).
-  const ExecViewUnmanaged<const ConnectionInfo*> get_d_ucon () const { return d_ucon; }
-  const ExecViewUnmanaged<const int*> get_d_ucon_ptr () const { return d_ucon_ptr; }
-  const HostViewUnmanaged<const ConnectionInfo*> get_h_ucon () const { return h_ucon; }
-  const HostViewUnmanaged<const int*> get_h_ucon_ptr () const { return h_ucon_ptr; }
+  ExecViewUnmanaged<const ConnectionInfo*> get_d_ucon () const { return d_ucon; }
+  ExecViewUnmanaged<const int*> get_d_ucon_ptr () const { return d_ucon_ptr; }
+  HostViewUnmanaged<const ConnectionInfo*> get_h_ucon () const { return h_ucon; }
+  HostViewUnmanaged<const int*> get_h_ucon_ptr () const { return h_ucon_ptr; }
   // Offset pointers at the level of directions within an element. Constructed
   // only if on GPU.
-  const ExecViewUnmanaged<const int*> get_d_ucon_dir_ptr () const
+  ExecViewUnmanaged<const int*> get_d_ucon_dir_ptr () const
   { assert(OnGpu<ExecSpace>::value); return d_ucon_dir_ptr; }
-  const HostViewUnmanaged<const int*> get_h_ucon_dir_ptr () const
+  HostViewUnmanaged<const int*> get_h_ucon_dir_ptr () const
   { assert(OnGpu<ExecSpace>::value); return h_ucon_dir_ptr; }
 
   // Get a particular connection

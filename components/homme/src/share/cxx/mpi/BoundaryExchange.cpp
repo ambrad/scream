@@ -212,6 +212,9 @@ void BoundaryExchange::registration_completed()
   // Note: for 2d/3d fields, we have 1 Real per GP (per level, in 3d). For 1d fields,
   //       we have 2 Real per level (max and min over element).
 
+  if (m_connectivity->get_comm().root())
+    fprintf(stderr, "amb> num fields: 1d %d 2d %d 3d %d 3d_int %d\n",
+            m_num_1d_fields, m_num_2d_fields, m_num_3d_fields, m_num_3d_int_fields);
   int single_ptr_buf_size = m_num_2d_fields + m_num_3d_int_fields*NUM_LEV_P*VECTOR_SIZE;
   for (int i = 0; i < m_num_3d_fields; ++i)
     single_ptr_buf_size += m_3d_nlev_pack[i]*VECTOR_SIZE;
@@ -320,6 +323,64 @@ void BoundaryExchange::exchange_min_max ()
 
   // --- Recv and unpack --- //
   recv_and_unpack_min_max ();
+}
+
+template <int NUM_LEV_PACKS, bool partial_column=false>
+static void
+pack (const ExecViewUnmanaged<const ConnectionInfo*> ucon,
+      const ExecViewUnmanaged<const int*> ucon_ptr,
+      const ExecViewManaged<ExecViewManaged<Scalar[NP][NP][NUM_LEV_PACKS]>**> fields_3d,
+      const ExecViewManaged<ExecViewUnmanaged<Scalar**>**> send_3d_buffers,
+      const int num_elems, const int num_3d_fields,
+      ExecViewManaged<int*>* nlev_packs_ = nullptr) {
+  assert(partial_column == (nlev_packs_ != nullptr));
+  if (partial_column) assert(nlev_packs_->extent_int(0) == num_3d_fields);
+  ExecViewUnmanaged<const int*> nlev_packs;
+  if (partial_column) nlev_packs = *nlev_packs_;
+  if (OnGpu<ExecSpace>::value) {
+#pragma message "GPU todo"
+  } else {
+    const auto num_parallel_iterations = num_elems*num_3d_fields;
+    ThreadPreferences tp;
+    tp.max_threads_usable = NUM_CONNECTIONS;
+    tp.max_vectors_usable = NUM_LEV_PACKS;
+    const auto threads_vectors =
+      DefaultThreadsDistribution<ExecSpace>::team_num_threads_vectors(
+        num_parallel_iterations, tp);
+    const auto policy = Kokkos::TeamPolicy<ExecSpace>(
+      num_parallel_iterations, threads_vectors.first, threads_vectors.second);
+    HOMMEXX_STATIC const ConnectionHelpers helpers;
+    Kokkos::parallel_for(
+      policy,
+      KOKKOS_LAMBDA(const TeamMember& team) {
+        Homme::KernelVariables kv(team, num_3d_fields);
+        const int ie = kv.ie;
+        const int ifield = kv.iq;
+        const auto tvr = Kokkos::ThreadVectorRange(
+          kv.team, partial_column ? nlev_packs(ifield) : NUM_LEV_PACKS);
+        const int iconn_end = ucon_ptr(ie+1);
+        for (int iconn = ucon_ptr(ie); iconn < iconn_end; ++iconn) {
+          const ConnectionInfo& info = ucon(iconn);
+          assert(info.kind != etoi(ConnectionSharing::MISSING));
+          const LidGidPos& field_lidpos = info.local;
+          const LidGidPos& buffer_lidpos = (info.sharing == etoi(ConnectionSharing::LOCAL) ?
+                                            info.remote :
+                                            info.local);
+          const auto& pts = helpers.CONNECTION_PTS[info.direction][field_lidpos.dir];
+          const auto& sb = send_3d_buffers(ifield, iconn);
+          const auto& f3 = fields_3d(field_lidpos.lid, ifield);
+          Kokkos::parallel_for(
+            Kokkos::TeamThreadRange(kv.team, helpers.CONNECTION_SIZE[info.kind]),
+            [&] (const int& k) {
+              const auto& ip = pts[k].ip;
+              const auto& jp = pts[k].jp;
+              auto* const sbp = &sb(k, 0);
+              const auto* const f3p = &f3(ip, jp, 0);
+              Kokkos::parallel_for( tvr, [&] (const int& ilev) { sbp[ilev] = f3p[ilev]; });
+            });
+        }
+      });
+  }
 }
 
 template <int NUM_LEV_PACKS, bool partial_column=false>
@@ -438,7 +499,30 @@ void BoundaryExchange::pack_and_send ()
 
   // ---- Pack ---- //
 #ifdef AMB_BE
-# pragma message "todo"
+# pragma message "in progress"
+  // First, pack 2d fields (if any)...
+  const auto& ucon = m_connectivity->get_d_ucon();
+  const auto& ucon_ptr = m_connectivity->get_d_ucon_ptr();
+  if (m_num_2d_fields > 0) {
+    auto fields_2d = m_2d_fields;
+    auto send_2d_buffers = m_send_2d_buffers;
+    const ConnectionHelpers helpers;
+    Errors::runtime_abort("todo 2D fields");
+  }
+  // ...then pack 3d fields (if any)...
+  if (m_num_3d_fields > 0) {
+    if (m_3d_nlev_pack_d.size() > 0)
+      pack<NUM_LEV, true>(ucon, ucon_ptr, m_3d_fields, m_send_3d_buffers,
+                          m_num_elems, m_num_3d_fields, &m_3d_nlev_pack_d);
+    else
+      pack<NUM_LEV>(ucon, ucon_ptr, m_3d_fields, m_send_3d_buffers,
+                    m_num_elems, m_num_3d_fields);
+  }
+  // ...then pack 3d interface fields (if any)
+  if (m_num_3d_int_fields > 0) {
+    pack<NUM_LEV_P>(ucon, ucon_ptr, m_3d_int_fields, m_send_3d_int_buffers,
+                    m_num_elems, m_num_3d_int_fields);
+  }
 #else
   // First, pack 2d fields (if any)...
   auto connections = m_connectivity->get_connections<ExecMemSpace>();
@@ -478,6 +562,10 @@ void BoundaryExchange::pack_and_send ()
   }
 #endif
   Kokkos::fence();
+
+#ifdef AMB_BE
+  Errors::runtime_abort("up to here");
+#endif
 
   // ---- Send ---- //
   tstart("be sync_send_buffer");
@@ -1169,14 +1257,14 @@ void BoundaryExchange::build_buffer_views_and_requests()
 
   {
     const auto mpi_comm = m_connectivity->get_comm().mpi_comm();
-    const int npids = pids.size();
+    const size_t npids = pids.size();
     free_requests();
     m_send_requests.resize(npids);
     m_recv_requests.resize(npids);
     MPIViewManaged<Real*>::pointer_type send_ptr = buffers_manager->get_mpi_send_buffer().data();
     MPIViewManaged<Real*>::pointer_type recv_ptr = buffers_manager->get_mpi_recv_buffer().data();
     int offset = 0;
-    for (int ip = 0; ip < npids; ++ip) {
+    for (size_t ip = 0; ip < npids; ++ip) {
       int count = 0;
       for (int k = pid_offsets[ip]; k < pid_offsets[ip+1]; ++k) {
 #ifdef AMB_BE
@@ -1203,10 +1291,6 @@ void BoundaryExchange::build_buffer_views_and_requests()
 
   // Now the buffer views and the requests are built
   m_buffer_views_and_requests_built = true;
-
-#ifdef AMB_BE
-  Errors::runtime_abort("run up to this point");
-#endif
 }
 
 void BoundaryExchange
@@ -1286,7 +1370,7 @@ void BoundaryExchange
     }
     slot_idx_to_elem_conn_pair[k] = i2r.i;
   }
-  pid_offsets.push_back(m_num_elems*NUM_CONNECTIONS);
+  pid_offsets.push_back(nconn);
 
 #else
   
