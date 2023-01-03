@@ -342,7 +342,7 @@ pack (const ExecViewUnmanaged<const ConnectionInfo*> ucon,
   } else {
     const auto num_parallel_iterations = num_elems*num_3d_fields;
     ThreadPreferences tp;
-    tp.max_threads_usable = NUM_CONNECTIONS;
+    tp.max_threads_usable = NP;
     tp.max_vectors_usable = NUM_LEV_PACKS;
     const auto threads_vectors =
       DefaultThreadsDistribution<ExecSpace>::team_num_threads_vectors(
@@ -376,7 +376,7 @@ pack (const ExecViewUnmanaged<const ConnectionInfo*> ucon,
               const auto& jp = pts[k].jp;
               auto* const sbp = &sb(k, 0);
               const auto* const f3p = &f3(ip, jp, 0);
-              Kokkos::parallel_for( tvr, [&] (const int& ilev) { sbp[ilev] = f3p[ilev]; });
+              Kokkos::parallel_for(tvr, [&] (const int& ilev) { sbp[ilev] = f3p[ilev]; });
             });
         }
       });
@@ -611,6 +611,8 @@ unpack (const ExecViewUnmanaged<const ConnectionInfo*> ucon,
         const auto& f3 = fields_3d(ie, ifield);
         const auto iconn_beg = ucon_ptr(ie), iconn_end = ucon_ptr(ie+1);
         const auto ef = [&] (const int& iedge, const int& k, const int& ip, const int& jp) {
+          assert(ucon(iconn_beg + iedge).local.dir == iedge);
+          assert(ucon(iconn_beg + iedge).local.dir_idx == 0);
           const auto& r3 = recv_3d_buffers(ifield, iconn_beg + iedge);
           auto* const f3p = &f3(ip, jp, 0);
           const auto* const r3p = &r3(k, 0);
@@ -623,8 +625,12 @@ unpack (const ExecViewUnmanaged<const ConnectionInfo*> ucon,
           ef(3, k, k,    NP-1);
         }
         const auto cf = [&] (const int& iconn, const int& ip, const int& jp) {
+          assert(ucon(iconn).local.dir >= 4 && ucon(iconn).local.dir < 8);
+          assert(ucon(iconn).local.dir_idx == 0 ||
+                 (ucon(iconn).local.dir_idx == ucon(iconn-1).local.dir_idx &&
+                  ucon(iconn).local.dir == ucon(iconn-1).local.dir));
           const auto& r3 = recv_3d_buffers(ifield, iconn);
-          if (r3.size() == 0) return;
+          assert(r3.size() > 0);
           auto* const f3p = &f3(ip, jp, 0);
           const auto* const r3p = &r3(0, 0);
           Kokkos::parallel_for(tvr, [&] (const int& ilev) { f3p[ilev] += r3p[ilev]; });
@@ -885,6 +891,7 @@ void BoundaryExchange::recv_and_unpack (const ExecViewUnmanaged<const Real * [NP
 
 void BoundaryExchange::pack_and_send_min_max ()
 {
+  assert(false);
   // The registration MUST be completed by now
   // Note: this also implies connectivity and buffers manager are valid
   assert (m_registration_completed);
@@ -998,6 +1005,7 @@ void BoundaryExchange::pack_and_send_min_max ()
 
 void BoundaryExchange::recv_and_unpack_min_max ()
 {
+  assert(false);
   // The registration MUST be completed by now
   // Note: this also implies connectivity and buffers manager are valid
   assert (m_registration_completed);
@@ -1208,7 +1216,7 @@ void BoundaryExchange::build_buffer_views_and_requests()
   for (size_t k = 0; k < nconn; ++k) {
     // Map from MPI buffer index space to (elem, connection) index space.
     const auto i = slot_idx_to_elem_conn_pair[k];
-    const auto& info = ucon(k);
+    const auto& info = ucon(i);
 
     auto& send_buffer = h_all_send_buffers[info.sharing];
     auto& recv_buffer = h_all_recv_buffers[info.sharing];
@@ -1428,7 +1436,7 @@ void BoundaryExchange
     i2r.i = k;
     // An ordering of the message buffer upon which both members of the
     // communication pair agree.
-    auto& lgp = info.local.gid < info.remote.gid ? info.local : info.remote;
+    const auto& lgp = info.local.gid < info.remote.gid ? info.local : info.remote;
     i2r.ord = lgp.gid*n_idx_per_elem + lgp.dir*mce + lgp.dir_idx;
     // If local, indicate with -1, which is < the smallest pid of 0.
     i2r.pid = -1;

@@ -99,7 +99,7 @@ using ArrayGP = Kokkos::Array<GaussPoint,NP>;
 
 // =========== A container struct for the information about connections =========== //
 
-// Here we define a bunch of conxtexpr int's and arrays (of arrays (of arrays)) of ints, which we can
+// Here we define a bunch of constexpr int's and arrays (of arrays (of arrays)) of ints, which we can
 // use to easily retrieve information about a connection, such as the kind (corner or edge), the ordering
 // on the remote (only relevant for edges), the (i,j) coordinates of the Gauss point(s) in the connection,
 // and more.

@@ -223,7 +223,6 @@ void Connectivity::setup_ucon () {
   h_ucon_ptr(m_num_local_elements) = nconn;
   if (nconn == 0) return;
 
-  // Sort by local LID.
   std::sort(ucon_info.begin(), ucon_info.end());
 
   { // Set up element pointers into ucon.
@@ -351,7 +350,9 @@ void Connectivity::setup_ucon () {
       for (int i = 0; i < 4; ++i)
         ok = (ok &&
               h_ucon(k+i).kind == etoi(ConnectionKind::EDGE) &&
-              h_ucon(k+i).local.dir == h.UNPACK_EDGES_ORDER[i]);
+              h_ucon(k+i).local.dir == h.UNPACK_EDGES_ORDER[i] &&
+              // In fact, S,N,W,E is numbered 0:3.
+              h_ucon(k+i).local.dir == i);
       if ( ! ok)
         Errors::runtime_abort("Connectivity::setup_ucon: Element's first four"
                               " connections are not edges in S, N, W, E order.");
