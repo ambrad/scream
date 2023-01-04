@@ -16,7 +16,7 @@
 #define tstart(x)
 #define tstop(x)
 
-static const bool test_gpu_pattern = false;
+static const bool test_gpu_pattern = true;
 
 namespace Homme
 {
@@ -638,7 +638,10 @@ unpack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> u
           }
         }
         for (int iconn = iconn_beg + 4; iconn < iconn_end; ++iconn) {
-          
+          const auto dir = ucon(iconn).local_dir;
+          f3(helpers.CONNECTION_PTS_FWD[dir][0].ip,
+             helpers.CONNECTION_PTS_FWD[dir][0].jp, ilev)
+            += recv_3d_buffers(ifield, iconn)(0, ilev);
         }
       });
     if (rspheremp) {
@@ -680,13 +683,6 @@ unpack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> u
           ef(2, k, k,    0   );
           ef(3, k, k,    NP-1);
         }
-        const auto cf = [&] (const int& iconn, const int& ip, const int& jp) {
-          const auto& r3 = recv_3d_buffers(ifield, iconn);
-          assert(r3.size() > 0);
-          auto* const f3p = &f3(ip, jp, 0);
-          const auto* const r3p = &r3(0, 0);
-          Kokkos::parallel_for(tvr, [&] (const int& ilev) { f3p[ilev] += r3p[ilev]; });
-        };
         for (int iconn = iconn_beg + 4; iconn < iconn_end; ++iconn) {
           const auto dir = ucon(iconn).local_dir;
           const auto& r3 = recv_3d_buffers(ifield, iconn);
