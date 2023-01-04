@@ -16,8 +16,6 @@
 #define tstart(x)
 #define tstop(x)
 
-static const bool test_gpu_pattern = true;
-
 namespace Homme
 {
 
@@ -339,7 +337,7 @@ pack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> uco
   if (partial_column) assert(nlev_packs_->extent_int(0) == num_3d_fields);
   ExecViewUnmanaged<const int*> nlev_packs;
   if (partial_column) nlev_packs = *nlev_packs_;
-  if (test_gpu_pattern || OnGpu<ExecSpace>::value) {
+  if (OnGpu<ExecSpace>::value) {
     const ConnectionHelpers helpers;
     const int nconn = ucon.extent_int(0);
     Kokkos::parallel_for(
@@ -615,7 +613,7 @@ unpack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> u
   if (partial_column) assert(nlev_packs_->extent_int(0) == num_3d_fields);
   ExecViewUnmanaged<const int*> nlev_packs;
   if (partial_column) nlev_packs = *nlev_packs_;
-  if (test_gpu_pattern || OnGpu<ExecSpace>::value) {
+  if (OnGpu<ExecSpace>::value) {
     const ConnectionHelpers helpers;
     Kokkos::parallel_for(
       Kokkos::RangePolicy<ExecSpace>(0, num_elems*num_3d_fields*NUM_LEV_PACKS),
@@ -943,7 +941,7 @@ static void pack_min_max (
   const ExecViewUnmanaged<ExecViewUnmanaged<Scalar[2][NUM_LEV]>**> send_1d_buffers,
   const int num_elems, const int num_1d_fields)
 {
-  if (test_gpu_pattern || OnGpu<ExecSpace>::value) {
+  if (OnGpu<ExecSpace>::value) {
     const ConnectionHelpers helpers;
     const int nconn = ucon.extent_int(0);
     Kokkos::parallel_for(
@@ -1120,7 +1118,7 @@ static void unpack_min_max (
   const ExecViewUnmanaged<ExecViewUnmanaged<Scalar[2][NUM_LEV]>**> recv_1d_buffers,
   const int num_elems, const int num_1d_fields)
 {
-  if (test_gpu_pattern || OnGpu<ExecSpace>::value) {
+  if (OnGpu<ExecSpace>::value) {
     const ConnectionHelpers helpers;
     Kokkos::parallel_for(
       Kokkos::RangePolicy<ExecSpace>(0, num_elems*num_1d_fields*NUM_LEV),
