@@ -16,7 +16,7 @@
 #define tstart(x)
 #define tstop(x)
 
-static const bool test_gpu_pattern = true;
+static const bool test_gpu_pattern = false;
 
 namespace Homme
 {
@@ -616,10 +616,47 @@ unpack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> u
   if (partial_column) assert(nlev_packs_->extent_int(0) == num_3d_fields);
   ExecViewUnmanaged<const int*> nlev_packs;
   if (partial_column) nlev_packs = *nlev_packs_;
-  if (OnGpu<ExecSpace>::value) {
+  if (test_gpu_pattern || OnGpu<ExecSpace>::value) {
     const ConnectionHelpers helpers;
-# pragma message "GPU todo"
+    Kokkos::parallel_for(
+      Kokkos::RangePolicy<ExecSpace>(0, num_elems*num_3d_fields*NUM_LEV_PACKS),
+      KOKKOS_LAMBDA(const int it) {
+        const int ie = it / (num_3d_fields*NUM_LEV_PACKS);
+        const int ifield = (it / NUM_LEV_PACKS) % num_3d_fields;
+        const int ilev = it % NUM_LEV_PACKS;
+        if (partial_column) { // compile out if !partial_column
+          if (ilev >= nlev_packs(ifield))
+            return;
+        }
+        const auto iconn_beg = ucon_ptr(ie), iconn_end = ucon_ptr(ie+1);
+        const auto& f3 = fields_3d(ie, ifield);
+        for (int k = 0; k < NP; ++k) {
+          for (const int iedge : helpers.UNPACK_EDGES_ORDER) {
+            f3(helpers.CONNECTION_PTS_FWD[iedge][k].ip,
+               helpers.CONNECTION_PTS_FWD[iedge][k].jp, ilev)
+              += recv_3d_buffers(ifield, iconn_beg + iedge)(k, ilev);
+          }
+        }
+        for (int iconn = iconn_beg + 4; iconn < iconn_end; ++iconn) {
+          
+        }
+      });
+    if (rspheremp) {
+      Kokkos::fence();
+      const auto rsmp = *rspheremp;
+      Kokkos::parallel_for(
+        Kokkos::RangePolicy<ExecSpace>(0, num_elems*num_3d_fields*NP*NP*NUM_LEV_PACKS),
+        KOKKOS_LAMBDA(const int it) {
+          const int ie = it / (num_3d_fields*NUM_LEV_PACKS*NP*NP);
+          const int ifield = (it / (NP*NP*NUM_LEV_PACKS)) % num_3d_fields;
+          const int i = (it / (NP*NUM_LEV_PACKS)) % NP;
+          const int j = (it / NUM_LEV_PACKS) % NP;
+          const int ilev = it % NUM_LEV_PACKS;
+          fields_3d(ie, ifield)(i, j, ilev) *= rsmp(ie, i, j);
+        });
+    }
   } else {
+    HOMMEXX_STATIC const ConnectionHelpers helpers;
     const auto num_parallel_iterations = num_elems*num_3d_fields;
     Kokkos::parallel_for(
       Kokkos::TeamPolicy<ExecSpace>(num_parallel_iterations, 1, NUM_LEV_PACKS),
@@ -651,13 +688,13 @@ unpack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> u
           Kokkos::parallel_for(tvr, [&] (const int& ilev) { f3p[ilev] += r3p[ilev]; });
         };
         for (int iconn = iconn_beg + 4; iconn < iconn_end; ++iconn) {
-          switch (ucon(iconn).local_dir) {
-          case 4: cf(iconn, 0,    0   ); break;
-          case 5: cf(iconn, 0,    NP-1); break;
-          case 6: cf(iconn, NP-1, 0   ); break;
-          case 7: cf(iconn, NP-1, NP-1); break;
-          default: assert(false);
-          }
+          const auto dir = ucon(iconn).local_dir;
+          const auto& r3 = recv_3d_buffers(ifield, iconn);
+          auto* const f3p = &f3(helpers.CONNECTION_PTS_FWD[dir][0].ip,
+                                helpers.CONNECTION_PTS_FWD[dir][0].jp, 0);
+          assert(r3.size() > 0);
+          const auto* const r3p = &r3(0, 0);
+          Kokkos::parallel_for(tvr, [&] (const int& ilev) { f3p[ilev] += r3p[ilev]; });
         }
         if (rspheremp) {
           for (int i = 0; i < NP; ++i)

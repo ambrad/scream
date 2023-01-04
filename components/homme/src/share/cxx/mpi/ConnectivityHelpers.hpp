@@ -184,13 +184,6 @@ struct ConnectionHelpers {
       { SOUTH_PTS_BWD, NORTH_PTS_BWD, WEST_PTS_BWD, EAST_PTS_BWD, SWEST_PTS, SEAST_PTS, NWEST_PTS, NEAST_PTS },
       { NO_PTS }
     };
-
-  // Edges and corners (fwd), used in the unpacking
-  const ArrayGP EDGE_PTS_FWD [NUM_CONNECTIONS_PER_KIND] =
-    { SOUTH_PTS_FWD, NORTH_PTS_FWD, WEST_PTS_FWD, EAST_PTS_FWD };
-
-  const ArrayGP CORNER_PTS_FWD [NUM_CONNECTIONS_PER_KIND] =
-    { SWEST_PTS, SEAST_PTS, NWEST_PTS, NEAST_PTS};
 };
 
 } // namespace Homme
