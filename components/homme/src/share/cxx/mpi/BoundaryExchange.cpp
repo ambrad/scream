@@ -16,7 +16,7 @@
 #define tstart(x)
 #define tstop(x)
 
-static const bool test_gpu_pattern = false;
+static const bool test_gpu_pattern = true;
 
 namespace Homme
 {
@@ -331,8 +331,8 @@ template <int NUM_LEV_PACKS, bool partial_column=false>
 static void
 pack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> ucon,
       const ExecViewUnmanaged<const int*> ucon_ptr,
-      const ExecViewManaged<ExecViewManaged<Scalar[NP][NP][NUM_LEV_PACKS]>**> fields_3d,
-      const ExecViewManaged<ExecViewUnmanaged<Scalar**>**> send_3d_buffers,
+      const ExecViewUnmanaged<ExecViewManaged<Scalar[NP][NP][NUM_LEV_PACKS]>**> fields_3d,
+      const ExecViewUnmanaged<ExecViewUnmanaged<Scalar**>**> send_3d_buffers,
       const int num_elems, const int num_3d_fields,
       ExecViewManaged<int*>* nlev_packs_ = nullptr) {
   assert(partial_column == (nlev_packs_ != nullptr));
@@ -373,8 +373,7 @@ pack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> uco
     const auto policy = Kokkos::TeamPolicy<ExecSpace>(
       num_parallel_iterations, threads_vectors.first, threads_vectors.second);
     HOMMEXX_STATIC const ConnectionHelpers helpers;
-    Kokkos::parallel_for(
-      policy,
+    Kokkos::parallel_for(policy,
       KOKKOS_LAMBDA(const TeamMember& team) {
         Homme::KernelVariables kv(team, num_3d_fields);
         const int ie = kv.ie;
@@ -607,8 +606,8 @@ template <int NUM_LEV_PACKS, bool partial_column=false>
 static void
 unpack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> ucon,
         const ExecViewUnmanaged<const int*> ucon_ptr,
-        const ExecViewManaged<ExecViewManaged<Scalar[NP][NP][NUM_LEV_PACKS]>**> fields_3d,
-        const ExecViewManaged<ExecViewUnmanaged<Scalar**>**> recv_3d_buffers,
+        const ExecViewUnmanaged<ExecViewManaged<Scalar[NP][NP][NUM_LEV_PACKS]>**> fields_3d,
+        const ExecViewUnmanaged<ExecViewUnmanaged<Scalar**>**> recv_3d_buffers,
         const ExecViewUnmanaged<const Real * [NP][NP]>* rspheremp,
         const int num_elems, const int num_3d_fields,
         ExecViewManaged<int*>* nlev_packs_ = nullptr) {
@@ -940,35 +939,28 @@ void BoundaryExchange::recv_and_unpack (const ExecViewUnmanaged<const Real * [NP
 static void pack_min_max (
   const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> ucon,
   const ExecViewUnmanaged<const int*> ucon_ptr,
-  const ExecViewManaged<ExecViewManaged<Scalar[2][NUM_LEV]>**> fields_1d,
-  const ExecViewManaged<ExecViewUnmanaged<Scalar[2][NUM_LEV]>**> send_1d_buffers,
+  const ExecViewUnmanaged<ExecViewManaged<Scalar[2][NUM_LEV]>**> fields_1d,
+  const ExecViewUnmanaged<ExecViewUnmanaged<Scalar[2][NUM_LEV]>**> send_1d_buffers,
   const int num_elems, const int num_1d_fields)
 {
   if (test_gpu_pattern || OnGpu<ExecSpace>::value) {
-#if 0
     const ConnectionHelpers helpers;
     const int nconn = ucon.extent_int(0);
     Kokkos::parallel_for(
-      Kokkos::RangePolicy<ExecSpace>(0, num_3d_fields*nconn*NUM_LEV_PACKS),
+      Kokkos::RangePolicy<ExecSpace>(0, num_1d_fields*nconn*NUM_LEV),
       KOKKOS_LAMBDA(const int it) {
-        const int ilev = it % NUM_LEV_PACKS;
-        const int ifield = (it / NUM_LEV_PACKS) % num_3d_fields;
-        if (partial_column) { // compile out if !partial_column
-          if (ilev >= nlev_packs(ifield))
-            return;
-        }
-        const int iconn = it / (num_3d_fields*NUM_LEV_PACKS);
+        const int iconn = it / (num_1d_fields*NUM_LEV);
+        const int ifield = (it / NUM_LEV) % num_1d_fields;
+        const int ilev = it % NUM_LEV;
         const auto& info = ucon(iconn);
         const int buffer_iconn = (info.sharing == etoi(ConnectionSharing::LOCAL) ?
                                   info.sharing_local_remote_iconn :
                                   iconn);
-        const auto& pts = helpers.CONNECTION_PTS[info.direction][info.local_dir];
-        const auto& sb = send_3d_buffers(ifield, buffer_iconn);
-        const auto& f3 = fields_3d(info.local_lid, ifield);
-        for (int k = 0; k < helpers.CONNECTION_SIZE[info.kind]; ++k)
-          sb(k, ilev) = f3(pts[k].ip, pts[k].jp, ilev);
+        const auto& sb = send_1d_buffers(ifield, buffer_iconn);
+        const auto& f1 = fields_1d(info.local_lid, ifield);
+        for (int k = 0; k < 2; ++k)
+          sb(k, ilev) = f1(k, ilev);
       });
-#endif
   } else {
     const auto num_parallel_iterations = num_elems*num_1d_fields;
     ThreadPreferences tp;
@@ -980,8 +972,7 @@ static void pack_min_max (
     const auto policy = Kokkos::TeamPolicy<ExecSpace>(
       num_parallel_iterations, threads_vectors.first, threads_vectors.second);
     HOMMEXX_STATIC const ConnectionHelpers helpers;
-    Kokkos::parallel_for(
-      policy,
+    Kokkos::parallel_for(policy,
       KOKKOS_LAMBDA(const TeamMember& team) {
         Homme::KernelVariables kv(team, num_1d_fields);
         const int ie = kv.ie;
@@ -1084,8 +1075,7 @@ void BoundaryExchange::pack_and_send_min_max ()
         num_parallel_iterations, tp);
     const auto policy = Kokkos::TeamPolicy<ExecSpace>(
       num_parallel_iterations, threads_vectors.first, threads_vectors.second);
-    Kokkos::parallel_for(
-      policy,
+    Kokkos::parallel_for(policy,
       KOKKOS_LAMBDA(const TeamMember& team) {
         Homme::KernelVariables kv(team, num_1d_fields*NUM_CONNECTIONS);
         const int ie = kv.ie;
@@ -1126,8 +1116,8 @@ void BoundaryExchange::pack_and_send_min_max ()
 static void unpack_min_max (
   const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> ucon,
   const ExecViewUnmanaged<const int*> ucon_ptr,
-  const ExecViewManaged<ExecViewManaged<Scalar[2][NUM_LEV]>**> fields_1d,
-  const ExecViewManaged<ExecViewUnmanaged<Scalar[2][NUM_LEV]>**> recv_1d_buffers,
+  const ExecViewUnmanaged<ExecViewManaged<Scalar[2][NUM_LEV]>**> fields_1d,
+  const ExecViewUnmanaged<ExecViewUnmanaged<Scalar[2][NUM_LEV]>**> recv_1d_buffers,
   const int num_elems, const int num_1d_fields)
 {
   if (test_gpu_pattern || OnGpu<ExecSpace>::value) {
@@ -1171,8 +1161,7 @@ static void unpack_min_max (
         num_parallel_iterations, tp);
     const auto policy = Kokkos::TeamPolicy<ExecSpace>(
       num_parallel_iterations, threads_vectors.first, threads_vectors.second);
-    Kokkos::parallel_for(
-      policy,
+    Kokkos::parallel_for(policy,
       KOKKOS_LAMBDA(const TeamMember& team) {
         Homme::KernelVariables kv(team, num_1d_fields);
         const int ie = kv.ie;
