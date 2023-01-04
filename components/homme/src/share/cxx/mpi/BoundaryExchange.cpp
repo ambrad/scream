@@ -419,14 +419,14 @@ pack (const ExecViewUnmanaged<const ConnectionInfo*[NUM_CONNECTIONS]> connection
     Kokkos::parallel_for(
       Kokkos::RangePolicy<ExecSpace>(0, num_elems*num_3d_fields*NUM_CONNECTIONS*NUM_LEV_PACKS),
       KOKKOS_LAMBDA(const int it) {
-        const int ie = it / (num_3d_fields*NUM_CONNECTIONS*NUM_LEV_PACKS);
         const int ifield = (it / (NUM_CONNECTIONS*NUM_LEV_PACKS)) % num_3d_fields;
-        const int iconn = (it / NUM_LEV_PACKS) % NUM_CONNECTIONS;
         const int ilev = it % NUM_LEV_PACKS;
         if (partial_column) { // compile out if !partial_column
           if (ilev >= nlev_packs(ifield))
             return;
         }
+        const int ie = it / (num_3d_fields*NUM_CONNECTIONS*NUM_LEV_PACKS);
+        const int iconn = (it / NUM_LEV_PACKS) % NUM_CONNECTIONS;
         const ConnectionInfo& info = connections(ie, iconn);
         const LidGidPos& field_lidpos = info.local;
         // For the buffer, in case of local connection, use remote info. In
@@ -620,13 +620,13 @@ unpack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> u
     Kokkos::parallel_for(
       Kokkos::RangePolicy<ExecSpace>(0, num_elems*num_3d_fields*NUM_LEV_PACKS),
       KOKKOS_LAMBDA(const int it) {
-        const int ie = it / (num_3d_fields*NUM_LEV_PACKS);
         const int ifield = (it / NUM_LEV_PACKS) % num_3d_fields;
         const int ilev = it % NUM_LEV_PACKS;
         if (partial_column) { // compile out if !partial_column
           if (ilev >= nlev_packs(ifield))
             return;
         }
+        const int ie = it / (num_3d_fields*NUM_LEV_PACKS);
         const auto iconn_beg = ucon_ptr(ie), iconn_end = ucon_ptr(ie+1);
         const auto& f3 = fields_3d(ie, ifield);
         for (int k = 0; k < NP; ++k) {
@@ -719,13 +719,13 @@ unpack (const ExecViewManaged<ExecViewManaged<Scalar[NP][NP][NUM_LEV_PACKS]>**> 
     Kokkos::parallel_for(
       Kokkos::RangePolicy<ExecSpace>(0, num_elems*num_3d_fields*NUM_LEV_PACKS),
       KOKKOS_LAMBDA(const int it) {
-        const int ie = it / (num_3d_fields*NUM_LEV_PACKS);
         const int ifield = (it / NUM_LEV_PACKS) % num_3d_fields;
         const int ilev = it % NUM_LEV_PACKS;
         if (partial_column) { // compile out if !partial_column
           if (ilev >= nlev_packs(ifield))
             return;
         }
+        const int ie = it / (num_3d_fields*NUM_LEV_PACKS);
         const auto& f3 = fields_3d(ie, ifield);
         for (int k=0; k<NP; ++k) {
           for (int iedge : helpers.UNPACK_EDGES_ORDER) {
@@ -1121,35 +1121,21 @@ static void unpack_min_max (
   const int num_elems, const int num_1d_fields)
 {
   if (test_gpu_pattern || OnGpu<ExecSpace>::value) {
-#if 0
     const ConnectionHelpers helpers;
     Kokkos::parallel_for(
-      Kokkos::RangePolicy<ExecSpace>(0, num_elems*num_3d_fields*NUM_LEV_PACKS),
+      Kokkos::RangePolicy<ExecSpace>(0, num_elems*num_1d_fields*NUM_LEV),
       KOKKOS_LAMBDA(const int it) {
-        const int ie = it / (num_3d_fields*NUM_LEV_PACKS);
-        const int ifield = (it / NUM_LEV_PACKS) % num_3d_fields;
-        const int ilev = it % NUM_LEV_PACKS;
-        if (partial_column) { // compile out if !partial_column
-          if (ilev >= nlev_packs(ifield))
-            return;
-        }
+        const int ie = it / (num_1d_fields*NUM_LEV);
+        const int ifield = (it / NUM_LEV) % num_1d_fields;
+        const int ilev = it % NUM_LEV;
+        const auto& f1 = fields_1d(ie, ifield);
         const auto iconn_beg = ucon_ptr(ie), iconn_end = ucon_ptr(ie+1);
-        const auto& f3 = fields_3d(ie, ifield);
-        for (int k = 0; k < NP; ++k) {
-          for (const int iedge : helpers.UNPACK_EDGES_ORDER) {
-            f3(helpers.CONNECTION_PTS_FWD[iedge][k].ip,
-               helpers.CONNECTION_PTS_FWD[iedge][k].jp, ilev)
-              += recv_3d_buffers(ifield, iconn_beg + iedge)(k, ilev);
-          }
-        }
-        for (int iconn = iconn_beg + 4; iconn < iconn_end; ++iconn) {
-          const auto dir = ucon(iconn).local_dir;
-          f3(helpers.CONNECTION_PTS_FWD[dir][0].ip,
-             helpers.CONNECTION_PTS_FWD[dir][0].jp, ilev)
-            += recv_3d_buffers(ifield, iconn)(0, ilev);
+        for (int iconn = iconn_beg; iconn < iconn_end; ++iconn) {
+          const auto& r1 = recv_1d_buffers(ifield, iconn);
+          f1(MIN_ID, ilev) = min(f1(MIN_ID, ilev), r1(MIN_ID, ilev));
+          f1(MAX_ID, ilev) = max(f1(MAX_ID, ilev), r1(MAX_ID, ilev));
         }
       });
-#endif
   } else {
     HOMMEXX_STATIC const ConnectionHelpers helpers;
     const auto num_parallel_iterations = num_elems*num_1d_fields;
@@ -1176,11 +1162,11 @@ static void unpack_min_max (
             const auto* const r1p = &r1(k, 0);
             auto* const f1p = &f1(k, 0);
             switch (k) {
-            case 0:
+            case MIN_ID:
               Kokkos::parallel_for(
                 tvr, [&] (const int& ilev) { f1p[ilev] = min(f1p[ilev], r1p[ilev]); });
               break;
-            case 1:
+            case MAX_ID:
               Kokkos::parallel_for(
                 tvr, [&] (const int& ilev) { f1p[ilev] = max(f1p[ilev], r1p[ilev]); });
               break;
