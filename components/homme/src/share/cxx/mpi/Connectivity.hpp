@@ -45,13 +45,10 @@ struct ConnectionInfo
 };
 
 // Just the data from the above that are needed on device during halo
-// exchanges. This squeezes an element's data into 8 bytes instead of ~32. On an
-// offload accelerator, this saves device memory and a little bandwidth; if the
-// device and host are the same, it adds 1/4 to the memory used for a relatively
-// small data structure. In principle the array of ConnectionInfo structs can be
-// deleted after initialization.
+// exchanges.
 struct HaloExchangeUnstructuredConnectionInfo
 {
+  int local_lid;
   std::uint8_t local_dir, kind, sharing, direction;
   // If sharing == LOCAL, then record the connection index within the remote
   // element to which (dir, dir_idx) maps. This is for the pack phase's special

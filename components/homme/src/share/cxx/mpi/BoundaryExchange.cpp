@@ -16,6 +16,8 @@
 #define tstart(x)
 #define tstop(x)
 
+static const bool test_gpu_pattern = true;
+
 namespace Homme
 {
 
@@ -337,8 +339,29 @@ pack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> uco
   if (partial_column) assert(nlev_packs_->extent_int(0) == num_3d_fields);
   ExecViewUnmanaged<const int*> nlev_packs;
   if (partial_column) nlev_packs = *nlev_packs_;
-  if (OnGpu<ExecSpace>::value) {
-#pragma message "GPU todo"
+  if (test_gpu_pattern || OnGpu<ExecSpace>::value) {
+    const ConnectionHelpers helpers;
+    const int nconn = ucon.extent_int(0);
+    Kokkos::parallel_for(
+      Kokkos::RangePolicy<ExecSpace>(0, num_3d_fields*nconn*NUM_LEV_PACKS),
+      KOKKOS_LAMBDA(const int it) {
+        const int ilev = it % NUM_LEV_PACKS;
+        const int ifield = (it / NUM_LEV_PACKS) % num_3d_fields;
+        if (partial_column) { // compile out if !partial_column
+          if (ilev >= nlev_packs(ifield))
+            return;
+        }
+        const int iconn = it / (num_3d_fields*NUM_LEV_PACKS);
+        const auto& info = ucon(iconn);
+        const int buffer_iconn = (info.sharing == etoi(ConnectionSharing::LOCAL) ?
+                                  info.sharing_local_remote_iconn :
+                                  iconn);
+        const auto& pts = helpers.CONNECTION_PTS[info.direction][info.local_dir];
+        const auto& sb = send_3d_buffers(ifield, buffer_iconn);
+        const auto& f3 = fields_3d(info.local_lid, ifield);
+        for (int k = 0; k < helpers.CONNECTION_SIZE[info.kind]; ++k)
+          sb(k, ilev) = f3(pts[k].ip, pts[k].jp, ilev);
+      });
   } else {
     const auto num_parallel_iterations = num_elems*num_3d_fields;
     ThreadPreferences tp;
@@ -367,14 +390,13 @@ pack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> uco
                                     iconn);
           const auto& pts = helpers.CONNECTION_PTS[info.direction][info.local_dir];
           const auto& sb = send_3d_buffers(ifield, buffer_iconn);
+          assert(info.local_lid == ie);
           const auto& f3 = fields_3d(ie, ifield);
           Kokkos::parallel_for(
             Kokkos::TeamThreadRange(kv.team, helpers.CONNECTION_SIZE[info.kind]),
             [&] (const int& k) {
-              const auto& ip = pts[k].ip;
-              const auto& jp = pts[k].jp;
               auto* const sbp = &sb(k, 0);
-              const auto* const f3p = &f3(ip, jp, 0);
+              const auto* const f3p = &f3(pts[k].ip, pts[k].jp, 0);
               Kokkos::parallel_for(tvr, [&] (const int& ilev) { sbp[ilev] = f3p[ilev]; });
             });
         }

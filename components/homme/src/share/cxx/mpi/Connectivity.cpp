@@ -284,6 +284,7 @@ void Connectivity::setup_ucon () {
   for (size_t i = 0; i < nconn; ++i) {
     const auto& uci = ucon_info[i];
     auto& info = m_ucon(i);
+    info.local_lid = uci.l_lid;
     info.local_dir = uci.l_dir;
     info.kind = uci.kind;
     info.sharing = uci.sharing;
