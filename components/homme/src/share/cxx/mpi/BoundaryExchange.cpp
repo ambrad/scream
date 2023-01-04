@@ -16,7 +16,7 @@
 #define tstart(x)
 #define tstop(x)
 
-static const bool test_gpu_pattern = true;
+static const bool test_gpu_pattern = false;
 
 namespace Homme
 {
@@ -937,9 +937,80 @@ void BoundaryExchange::recv_and_unpack (const ExecViewUnmanaged<const Real * [NP
   tstop("be recv_and_unpack");
 }
 
+static void pack_min_max (
+  const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> ucon,
+  const ExecViewUnmanaged<const int*> ucon_ptr,
+  const ExecViewManaged<ExecViewManaged<Scalar[2][NUM_LEV]>**> fields_1d,
+  const ExecViewManaged<ExecViewUnmanaged<Scalar[2][NUM_LEV]>**> send_1d_buffers,
+  const int num_elems, const int num_1d_fields)
+{
+  if (test_gpu_pattern || OnGpu<ExecSpace>::value) {
+#if 0
+    const ConnectionHelpers helpers;
+    const int nconn = ucon.extent_int(0);
+    Kokkos::parallel_for(
+      Kokkos::RangePolicy<ExecSpace>(0, num_3d_fields*nconn*NUM_LEV_PACKS),
+      KOKKOS_LAMBDA(const int it) {
+        const int ilev = it % NUM_LEV_PACKS;
+        const int ifield = (it / NUM_LEV_PACKS) % num_3d_fields;
+        if (partial_column) { // compile out if !partial_column
+          if (ilev >= nlev_packs(ifield))
+            return;
+        }
+        const int iconn = it / (num_3d_fields*NUM_LEV_PACKS);
+        const auto& info = ucon(iconn);
+        const int buffer_iconn = (info.sharing == etoi(ConnectionSharing::LOCAL) ?
+                                  info.sharing_local_remote_iconn :
+                                  iconn);
+        const auto& pts = helpers.CONNECTION_PTS[info.direction][info.local_dir];
+        const auto& sb = send_3d_buffers(ifield, buffer_iconn);
+        const auto& f3 = fields_3d(info.local_lid, ifield);
+        for (int k = 0; k < helpers.CONNECTION_SIZE[info.kind]; ++k)
+          sb(k, ilev) = f3(pts[k].ip, pts[k].jp, ilev);
+      });
+#endif
+  } else {
+    const auto num_parallel_iterations = num_elems*num_1d_fields;
+    ThreadPreferences tp;
+    tp.max_threads_usable = 2;
+    tp.max_vectors_usable = NUM_LEV;
+    const auto threads_vectors =
+      DefaultThreadsDistribution<ExecSpace>::team_num_threads_vectors(
+        num_parallel_iterations, tp);
+    const auto policy = Kokkos::TeamPolicy<ExecSpace>(
+      num_parallel_iterations, threads_vectors.first, threads_vectors.second);
+    HOMMEXX_STATIC const ConnectionHelpers helpers;
+    Kokkos::parallel_for(
+      policy,
+      KOKKOS_LAMBDA(const TeamMember& team) {
+        Homme::KernelVariables kv(team, num_1d_fields);
+        const int ie = kv.ie;
+        const int ifield = kv.iq;
+        const auto ttr = Kokkos::TeamThreadRange(kv.team, 2);
+        const auto tvr = Kokkos::ThreadVectorRange(kv.team, NUM_LEV);
+        const int iconn_end = ucon_ptr(ie+1);
+        for (int iconn = ucon_ptr(ie); iconn < iconn_end; ++iconn) {
+          const auto& info = ucon(iconn);
+          assert(info.kind != etoi(ConnectionSharing::MISSING));
+          const int buffer_iconn = (info.sharing == etoi(ConnectionSharing::LOCAL) ?
+                                    info.sharing_local_remote_iconn :
+                                    iconn);
+          const auto& sb = send_1d_buffers(ifield, buffer_iconn);
+          const auto& f1 = fields_1d(ie, ifield);
+          Kokkos::parallel_for(ttr, [&] (const int& k) {
+            auto* const sbp = &sb(k, 0);
+            const auto* const f1p = &f1(k, 0);
+            Kokkos::parallel_for(
+              Kokkos::ThreadVectorRange(kv.team, NUM_LEV),
+              [&] (const int& ilev) { sbp[ilev] = f1p[ilev]; });
+          });
+        }
+      });
+  }
+}
+
 void BoundaryExchange::pack_and_send_min_max ()
 {
-  assert(false);
   // The registration MUST be completed by now
   // Note: this also implies connectivity and buffers manager are valid
   assert (m_registration_completed);
@@ -969,6 +1040,10 @@ void BoundaryExchange::pack_and_send_min_max ()
     tstop("be build_buffer_views_and_requests");
   }
 
+#ifdef AMB_BE
+  pack_min_max(m_connectivity->get_d_ucon(), m_connectivity->get_d_ucon_ptr(),
+               m_1d_fields, m_send_1d_buffers, m_num_elems, m_num_1d_fields);
+#else
   // NOTE: all of these temporary copies are necessary because of the issue of lambda function not
   //       capturing the this pointer correctly on the device.
   auto connections = m_connectivity->get_connections<ExecMemSpace>();
@@ -976,9 +1051,6 @@ void BoundaryExchange::pack_and_send_min_max ()
   auto send_1d_buffers = m_send_1d_buffers;
 
   // ---- Pack ---- //
-#ifdef AMB_BE
-# pragma message "todo"
-#else
   const auto num_1d_fields = m_num_1d_fields;
   if (OnGpu<ExecSpace>::value) {
     Kokkos::parallel_for(
@@ -1051,9 +1123,88 @@ void BoundaryExchange::pack_and_send_min_max ()
   m_send_pending = true;
 }
 
+static void unpack_min_max (
+  const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> ucon,
+  const ExecViewUnmanaged<const int*> ucon_ptr,
+  const ExecViewManaged<ExecViewManaged<Scalar[2][NUM_LEV]>**> fields_1d,
+  const ExecViewManaged<ExecViewUnmanaged<Scalar[2][NUM_LEV]>**> recv_1d_buffers,
+  const int num_elems, const int num_1d_fields)
+{
+  if (test_gpu_pattern || OnGpu<ExecSpace>::value) {
+#if 0
+    const ConnectionHelpers helpers;
+    Kokkos::parallel_for(
+      Kokkos::RangePolicy<ExecSpace>(0, num_elems*num_3d_fields*NUM_LEV_PACKS),
+      KOKKOS_LAMBDA(const int it) {
+        const int ie = it / (num_3d_fields*NUM_LEV_PACKS);
+        const int ifield = (it / NUM_LEV_PACKS) % num_3d_fields;
+        const int ilev = it % NUM_LEV_PACKS;
+        if (partial_column) { // compile out if !partial_column
+          if (ilev >= nlev_packs(ifield))
+            return;
+        }
+        const auto iconn_beg = ucon_ptr(ie), iconn_end = ucon_ptr(ie+1);
+        const auto& f3 = fields_3d(ie, ifield);
+        for (int k = 0; k < NP; ++k) {
+          for (const int iedge : helpers.UNPACK_EDGES_ORDER) {
+            f3(helpers.CONNECTION_PTS_FWD[iedge][k].ip,
+               helpers.CONNECTION_PTS_FWD[iedge][k].jp, ilev)
+              += recv_3d_buffers(ifield, iconn_beg + iedge)(k, ilev);
+          }
+        }
+        for (int iconn = iconn_beg + 4; iconn < iconn_end; ++iconn) {
+          const auto dir = ucon(iconn).local_dir;
+          f3(helpers.CONNECTION_PTS_FWD[dir][0].ip,
+             helpers.CONNECTION_PTS_FWD[dir][0].jp, ilev)
+            += recv_3d_buffers(ifield, iconn)(0, ilev);
+        }
+      });
+#endif
+  } else {
+    HOMMEXX_STATIC const ConnectionHelpers helpers;
+    const auto num_parallel_iterations = num_elems*num_1d_fields;
+    ThreadPreferences tp;
+    tp.max_threads_usable = 2;
+    tp.max_vectors_usable = NUM_LEV;
+    const auto threads_vectors =
+      DefaultThreadsDistribution<ExecSpace>::team_num_threads_vectors(
+        num_parallel_iterations, tp);
+    const auto policy = Kokkos::TeamPolicy<ExecSpace>(
+      num_parallel_iterations, threads_vectors.first, threads_vectors.second);
+    Kokkos::parallel_for(
+      policy,
+      KOKKOS_LAMBDA(const TeamMember& team) {
+        Homme::KernelVariables kv(team, num_1d_fields);
+        const int ie = kv.ie;
+        const int ifield = kv.iq;
+        const auto ttr = Kokkos::TeamThreadRange(kv.team, 2);
+        const auto tvr = Kokkos::ThreadVectorRange(kv.team, NUM_LEV);
+        const auto& f1 = fields_1d(ie, ifield);
+        const auto iconn_beg = ucon_ptr(ie), iconn_end = ucon_ptr(ie+1);
+        for (int iconn = iconn_beg; iconn < iconn_end; ++iconn) {
+          const auto& r1 = recv_1d_buffers(ifield, iconn);
+          Kokkos::parallel_for(ttr, [&] (const int& k) {
+            const auto* const r1p = &r1(k, 0);
+            auto* const f1p = &f1(k, 0);
+            switch (k) {
+            case 0:
+              Kokkos::parallel_for(
+                tvr, [&] (const int& ilev) { f1p[ilev] = min(f1p[ilev], r1p[ilev]); });
+              break;
+            case 1:
+              Kokkos::parallel_for(
+                tvr, [&] (const int& ilev) { f1p[ilev] = max(f1p[ilev], r1p[ilev]); });
+              break;
+            default: assert(false);
+            }
+          });
+        }
+      });
+  }
+}
+
 void BoundaryExchange::recv_and_unpack_min_max ()
 {
-  assert(false);
   // The registration MUST be completed by now
   // Note: this also implies connectivity and buffers manager are valid
   assert (m_registration_completed);
@@ -1087,6 +1238,10 @@ void BoundaryExchange::recv_and_unpack_min_max ()
 
   m_buffers_manager->sync_recv_buffer(this); // Deep copy mpi_recv_buffer into recv_buffer (no op if MPI is on device)
 
+#ifdef AMB_BE
+  unpack_min_max(m_connectivity->get_d_ucon(), m_connectivity->get_d_ucon_ptr(),
+                 m_1d_fields, m_recv_1d_buffers, m_num_elems, m_num_1d_fields);
+#else
   // NOTE: all of these temporary copies are necessary because of the issue of lambda function not
   //       capturing the this pointer correctly on the device.
   auto connections = m_connectivity->get_connections<ExecMemSpace>();
@@ -1094,9 +1249,6 @@ void BoundaryExchange::recv_and_unpack_min_max ()
   auto recv_1d_buffers = m_recv_1d_buffers;
 
   // --- Unpack --- //
-#ifdef AMB_BE
-# pragma message "todo"
-#else
   const auto num_1d_fields = m_num_1d_fields;
   if (OnGpu<ExecSpace>::value) {
     Kokkos::parallel_for(
