@@ -244,27 +244,6 @@ void Connectivity::setup_ucon () {
     assert(ie == m_num_local_elements-1);
   }
 
-  if (OnGpu<ExecSpace>::value) {
-    // Set up direction pointers into ucon.
-    int ndir = 0;
-    for (size_t i = 0; i < nconn; ++i)
-      if (ucon_info[i].l_dir_idx == 0)
-        ++ndir;
-    d_ucon_dir_ptr = decltype(d_ucon_dir_ptr)(
-      "Unstructured Connection Directions Ptr", ndir);
-    h_ucon_dir_ptr = Kokkos::create_mirror_view(d_ucon_dir_ptr);
-    int p = 0;
-    for (size_t i = 0; i < nconn; ++i) {
-      if (ucon_info[i].l_dir_idx == 0)
-        h_ucon_dir_ptr(p++) = i;
-      else
-        assert(i > 0 && ucon_info[i].l_dir == ucon_info[i-1].l_dir);
-    }
-    h_ucon_dir_ptr(p++) = nconn;
-    assert(p == ndir);
-    Kokkos::deep_copy(d_ucon_dir_ptr, h_ucon_dir_ptr);
-  }
-
   // Fill Info structs. h_ucon contains the large ConnectionInfo struct for use
   // in model initialization.
   for (size_t i = 0; i < nconn; ++i) {

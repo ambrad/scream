@@ -112,12 +112,6 @@ public:
   ExecViewUnmanaged<const int*> get_d_ucon_ptr () const { return d_ucon_ptr; }
   HostViewUnmanaged<const ConnectionInfo*> get_h_ucon () const { return h_ucon; }
   HostViewUnmanaged<const int*> get_h_ucon_ptr () const { return h_ucon_ptr; }
-  // Offset pointers at the level of directions within an element. Constructed
-  // only if on GPU.
-  ExecViewUnmanaged<const int*> get_d_ucon_dir_ptr () const
-  { assert(OnGpu<ExecSpace>::value); return d_ucon_dir_ptr; }
-  HostViewUnmanaged<const int*> get_h_ucon_dir_ptr () const
-  { assert(OnGpu<ExecSpace>::value); return h_ucon_dir_ptr; }
 
   // Get a particular connection
   template<typename MemSpace>
