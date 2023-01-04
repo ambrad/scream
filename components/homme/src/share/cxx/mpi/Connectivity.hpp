@@ -13,13 +13,13 @@
 
 namespace Homme
 {
-// Store, for a connection between elements, the local and global IDs of the
-// element and the position. A position is its direction (edge or corner) and
-// its direction index (> 0 for some corners in RRM grids).
 struct LidGidPos
 {
-  int lid;
-  int gid;
+  // The local and global IDs of the element.
+  int lid, gid;
+  // The cardinal direction (ConnectionName) and the index within the
+  // connections to the element. For edges, dir == dir_idx in 0:3. For corners,
+  // dir and dir_idx are not necessarily 1-1.
   std::uint8_t dir, dir_idx;
 };
 
@@ -42,6 +42,21 @@ struct ConnectionInfo
 
   // The following is needed only for W/E/S/N edges, in case the ordering of the NP points is different in the two elements
   std::uint8_t direction;  //0=forward, 1=backward
+};
+
+// Just the data from the above that are needed on device during halo
+// exchanges. This squeezes an element's data into 8 bytes instead of ~32. On an
+// offload accelerator, this saves device memory and a little bandwidth; if the
+// device and host are the same, it adds 1/4 to the memory used for a relatively
+// small data structure. In principle the array of ConnectionInfo structs can be
+// deleted after initialization.
+struct HaloExchangeUnstructuredConnectionInfo
+{
+  std::uint8_t local_dir, kind, sharing, direction;
+  // If sharing == LOCAL, then record the connection index within the remote
+  // element to which (dir, dir_idx) maps. This is for the pack phase's special
+  // treatement of this case.
+  int sharing_local_remote_iconn;
 };
 
 // The connectivity class. It stores two lists of ConnectionInfo objects, one for
@@ -94,7 +109,9 @@ public:
   // Unstructured connections to handle RRM case. Connections for an element
   // having local ID ie are
   //   ucon(ucon_ptr(ie)):ucon(ucon_ptr(ie+1)-1).
-  ExecViewUnmanaged<const ConnectionInfo*> get_d_ucon () const { return d_ucon; }
+  // Device d_ucon(i) is 1-1 with host h_ucon(i) but has a different, ~8x
+  // smaller, format.
+  ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> get_d_ucon () const { return d_ucon; }
   ExecViewUnmanaged<const int*> get_d_ucon_ptr () const { return d_ucon_ptr; }
   HostViewUnmanaged<const ConnectionInfo*> get_h_ucon () const { return h_ucon; }
   HostViewUnmanaged<const int*> get_h_ucon_ptr () const { return h_ucon_ptr; }
@@ -163,7 +180,7 @@ private:
   ExecViewManaged<ConnectionInfo*[NUM_CONNECTIONS]>             m_connections;
   ExecViewManaged<ConnectionInfo*[NUM_CONNECTIONS]>::HostMirror h_connections;
 
-  ExecViewManaged<ConnectionInfo*>             d_ucon;
+  ExecViewManaged<HaloExchangeUnstructuredConnectionInfo*> d_ucon;
   ExecViewManaged<ConnectionInfo*>::HostMirror h_ucon;
   ExecViewManaged<int*>             d_ucon_ptr;
   ExecViewManaged<int*>::HostMirror h_ucon_ptr;

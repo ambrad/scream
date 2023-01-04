@@ -327,7 +327,7 @@ void BoundaryExchange::exchange_min_max ()
 
 template <int NUM_LEV_PACKS, bool partial_column=false>
 static void
-pack (const ExecViewUnmanaged<const ConnectionInfo*> ucon,
+pack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> ucon,
       const ExecViewUnmanaged<const int*> ucon_ptr,
       const ExecViewManaged<ExecViewManaged<Scalar[NP][NP][NUM_LEV_PACKS]>**> fields_3d,
       const ExecViewManaged<ExecViewUnmanaged<Scalar**>**> send_3d_buffers,
@@ -360,28 +360,14 @@ pack (const ExecViewUnmanaged<const ConnectionInfo*> ucon,
           kv.team, partial_column ? nlev_packs(ifield) : NUM_LEV_PACKS);
         const int iconn_end = ucon_ptr(ie+1);
         for (int iconn = ucon_ptr(ie); iconn < iconn_end; ++iconn) {
-          const ConnectionInfo& info = ucon(iconn);
+          const auto& info = ucon(iconn);
           assert(info.kind != etoi(ConnectionSharing::MISSING));
-          const LidGidPos& field_lidpos = info.local;
-          const LidGidPos& buffer_lidpos = (info.sharing == etoi(ConnectionSharing::LOCAL) ?
-                                            info.remote :
-                                            info.local);
-          const auto& pts = helpers.CONNECTION_PTS[info.direction][field_lidpos.dir];
-          // Scaffolding until we streamline some data structures.
-          const int je = buffer_lidpos.lid;
-          int jconn = iconn;
-          if (info.sharing == etoi(ConnectionSharing::LOCAL)) {
-            jconn = -1;
-            for (int j = ucon_ptr(je); j < ucon_ptr(je+1); ++j)
-              if (ucon(j).local.dir == ucon(iconn).remote.dir &&
-                  ucon(j).local.dir_idx == ucon(iconn).remote.dir_idx) {
-                jconn = j;
-                break;
-              }
-            assert(jconn >= 0);
-          }
-          const auto& sb = send_3d_buffers(ifield, jconn);
-          const auto& f3 = fields_3d(field_lidpos.lid, ifield);
+          const int buffer_iconn = (info.sharing == etoi(ConnectionSharing::LOCAL) ?
+                                    info.sharing_local_remote_iconn :
+                                    iconn);
+          const auto& pts = helpers.CONNECTION_PTS[info.direction][info.local_dir];
+          const auto& sb = send_3d_buffers(ifield, buffer_iconn);
+          const auto& f3 = fields_3d(ie, ifield);
           Kokkos::parallel_for(
             Kokkos::TeamThreadRange(kv.team, helpers.CONNECTION_SIZE[info.kind]),
             [&] (const int& k) {
@@ -597,7 +583,7 @@ void BoundaryExchange::recv_and_unpack () {
 // assume:conn-edges-snwe
 template <int NUM_LEV_PACKS, bool partial_column=false>
 static void
-unpack (const ExecViewUnmanaged<const ConnectionInfo*> ucon,
+unpack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> ucon,
         const ExecViewUnmanaged<const int*> ucon_ptr,
         const ExecViewManaged<ExecViewManaged<Scalar[NP][NP][NUM_LEV_PACKS]>**> fields_3d,
         const ExecViewManaged<ExecViewUnmanaged<Scalar**>**> recv_3d_buffers,
@@ -624,8 +610,6 @@ unpack (const ExecViewUnmanaged<const ConnectionInfo*> ucon,
         const auto& f3 = fields_3d(ie, ifield);
         const auto iconn_beg = ucon_ptr(ie), iconn_end = ucon_ptr(ie+1);
         const auto ef = [&] (const int& iedge, const int& k, const int& ip, const int& jp) {
-          assert(ucon(iconn_beg + iedge).local.dir == iedge);
-          assert(ucon(iconn_beg + iedge).local.dir_idx == 0);
           const auto& r3 = recv_3d_buffers(ifield, iconn_beg + iedge);
           auto* const f3p = &f3(ip, jp, 0);
           const auto* const r3p = &r3(k, 0);
@@ -638,10 +622,6 @@ unpack (const ExecViewUnmanaged<const ConnectionInfo*> ucon,
           ef(3, k, k,    NP-1);
         }
         const auto cf = [&] (const int& iconn, const int& ip, const int& jp) {
-          assert(ucon(iconn).local.dir >= 4 && ucon(iconn).local.dir < 8);
-          assert(ucon(iconn).local.dir_idx == 0 ||
-                 (ucon(iconn).local.dir_idx == ucon(iconn-1).local.dir_idx &&
-                  ucon(iconn).local.dir == ucon(iconn-1).local.dir));
           const auto& r3 = recv_3d_buffers(ifield, iconn);
           assert(r3.size() > 0);
           auto* const f3p = &f3(ip, jp, 0);
@@ -649,7 +629,7 @@ unpack (const ExecViewUnmanaged<const ConnectionInfo*> ucon,
           Kokkos::parallel_for(tvr, [&] (const int& ilev) { f3p[ilev] += r3p[ilev]; });
         };
         for (int iconn = iconn_beg + 4; iconn < iconn_end; ++iconn) {
-          switch (ucon(iconn).local.dir) {
+          switch (ucon(iconn).local_dir) {
           case 4: cf(iconn, 0,    0   ); break;
           case 5: cf(iconn, 0,    NP-1); break;
           case 6: cf(iconn, NP-1, 0   ); break;

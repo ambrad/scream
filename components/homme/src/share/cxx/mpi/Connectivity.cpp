@@ -214,9 +214,10 @@ void Connectivity::setup_ucon () {
   const size_t nconn = ucon_info.size();
 
   d_ucon = decltype(d_ucon)("Unstructured Connections", nconn);
+  const auto m_ucon = Kokkos::create_mirror_view(d_ucon);
   d_ucon_ptr = decltype(d_ucon_ptr)("Unstructured Connections Ptr",
                                     m_num_local_elements+1);
-  h_ucon = Kokkos::create_mirror_view(d_ucon);
+  h_ucon = decltype(h_ucon)("Unstructured Connections", nconn);
   h_ucon_ptr = Kokkos::create_mirror_view(d_ucon_ptr);
 
   h_ucon_ptr(0) = 0;
@@ -264,7 +265,8 @@ void Connectivity::setup_ucon () {
     Kokkos::deep_copy(d_ucon_dir_ptr, h_ucon_dir_ptr);
   }
 
-  // Fill Info structs.
+  // Fill Info structs. h_ucon contains the large ConnectionInfo struct for use
+  // in model initialization.
   for (size_t i = 0; i < nconn; ++i) {
     const auto& uci = ucon_info[i];
     auto& info = h_ucon(i);
@@ -277,8 +279,30 @@ void Connectivity::setup_ucon () {
     info.sharing = uci.sharing;
     info.direction = uci.direction;
   }
+  // m/d_ucon contain the much smaller HaloExchangeUnstructuredConnectionInfo
+  // for use during halo exchanges.
+  for (size_t i = 0; i < nconn; ++i) {
+    const auto& uci = ucon_info[i];
+    auto& info = m_ucon(i);
+    info.local_dir = uci.l_dir;
+    info.kind = uci.kind;
+    info.sharing = uci.sharing;
+    info.direction = uci.direction;
+    info.sharing_local_remote_iconn = -1;
+    if (info.sharing == etoi(ConnectionSharing::LOCAL)) {
+      const int je = h_ucon(i).remote.lid;
+      const int jbeg = h_ucon_ptr(je), jend = h_ucon_ptr(je+1);
+      for (int j = jbeg; j < jend; ++j)
+        if (h_ucon(j).local.dir == h_ucon(i).remote.dir &&
+            h_ucon(j).local.dir_idx == h_ucon(i).remote.dir_idx) {
+          info.sharing_local_remote_iconn = j;
+          break;
+        }
+      assert(info.sharing_local_remote_iconn >= 0);
+    }
+  }
 
-  Kokkos::deep_copy(d_ucon, h_ucon);
+  Kokkos::deep_copy(d_ucon, m_ucon);
   Kokkos::deep_copy(d_ucon_ptr, h_ucon_ptr);
 
   // Clear memory.
