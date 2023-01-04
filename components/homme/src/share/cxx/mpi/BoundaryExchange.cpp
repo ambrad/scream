@@ -367,7 +367,20 @@ pack (const ExecViewUnmanaged<const ConnectionInfo*> ucon,
                                             info.remote :
                                             info.local);
           const auto& pts = helpers.CONNECTION_PTS[info.direction][field_lidpos.dir];
-          const auto& sb = send_3d_buffers(ifield, iconn);
+          // Scaffolding until we streamline some data structures.
+          const int je = buffer_lidpos.lid;
+          int jconn = iconn;
+          if (info.sharing == etoi(ConnectionSharing::LOCAL)) {
+            jconn = -1;
+            for (int j = ucon_ptr(je); j < ucon_ptr(je+1); ++j)
+              if (ucon(j).local.dir == ucon(iconn).remote.dir &&
+                  ucon(j).local.dir_idx == ucon(iconn).remote.dir_idx) {
+                jconn = j;
+                break;
+              }
+            assert(jconn >= 0);
+          }
+          const auto& sb = send_3d_buffers(ifield, jconn);
           const auto& f3 = fields_3d(field_lidpos.lid, ifield);
           Kokkos::parallel_for(
             Kokkos::TeamThreadRange(kv.team, helpers.CONNECTION_SIZE[info.kind]),
