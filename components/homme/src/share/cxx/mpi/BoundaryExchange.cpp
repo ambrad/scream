@@ -516,7 +516,9 @@ void BoundaryExchange::pack_and_send ()
   }
 
   // ---- Pack ---- //
+  Kokkos::fence();
 #ifdef AMB_BE
+  GPTLstart("amb_pack_ucon");
   const auto& ucon = m_connectivity->get_d_ucon();
   const auto& ucon_ptr = m_connectivity->get_d_ucon_ptr();
   // First, pack 2d fields (if any)...
@@ -541,7 +543,9 @@ void BoundaryExchange::pack_and_send ()
     pack<NUM_LEV_P>(ucon, ucon_ptr, m_3d_int_fields, m_send_3d_int_buffers,
                     m_num_elems, m_num_3d_int_fields);
   }
+  Kokkos::fence(); GPTLstop("amb_pack_ucon");
 #else
+  GPTLstart("amb_pack_scon");
   // First, pack 2d fields (if any)...
   auto connections = m_connectivity->get_connections<ExecMemSpace>();
   if (m_num_2d_fields>0) {
@@ -578,6 +582,7 @@ void BoundaryExchange::pack_and_send ()
     pack<NUM_LEV_P>(connections, m_3d_int_fields, m_send_3d_int_buffers,
                     m_num_elems, m_num_3d_int_fields);
   }
+  Kokkos::fence(); GPTLstop("amb_pack_scon");
 #endif
   Kokkos::fence();
 
@@ -847,6 +852,8 @@ void BoundaryExchange::recv_and_unpack (const ExecViewUnmanaged<const Real * [NP
   tstop("be recv_and_unpack book");
 
   // --- Unpack --- //
+  Kokkos::fence();
+  GPTLstart("amb_unpack");
 #ifdef AMB_BE
   const auto& ucon = m_connectivity->get_d_ucon();
   const auto& ucon_ptr = m_connectivity->get_d_ucon_ptr();
@@ -912,6 +919,7 @@ void BoundaryExchange::recv_and_unpack (const ExecViewUnmanaged<const Real * [NP
   }
 #endif
   Kokkos::fence();
+  GPTLstop("amb_unpack");
 
   // If another BE structure starts an exchange, it has no way to check that
   // this object has finished its send requests, and may erroneously reuse the
@@ -1029,6 +1037,8 @@ void BoundaryExchange::pack_and_send_min_max ()
     tstop("be build_buffer_views_and_requests");
   }
 
+  Kokkos::fence();
+  GPTLstart("amb_pack_min_max");
 #ifdef AMB_BE
   pack_min_max(m_connectivity->get_d_ucon(), m_connectivity->get_d_ucon_ptr(),
                m_1d_fields, m_send_1d_buffers, m_num_elems, m_num_1d_fields);
@@ -1100,6 +1110,7 @@ void BoundaryExchange::pack_and_send_min_max ()
   }
 #endif
   Kokkos::fence();
+  GPTLstop("amb_pack_min_max");
 
   // ---- Send ---- //
   m_buffers_manager->sync_send_buffer(this);
@@ -1211,6 +1222,8 @@ void BoundaryExchange::recv_and_unpack_min_max ()
 
   m_buffers_manager->sync_recv_buffer(this); // Deep copy mpi_recv_buffer into recv_buffer (no op if MPI is on device)
 
+  Kokkos::fence();
+  GPTLstart("amb_unpack_min_max");
 #ifdef AMB_BE
   unpack_min_max(m_connectivity->get_d_ucon(), m_connectivity->get_d_ucon_ptr(),
                  m_1d_fields, m_recv_1d_buffers, m_num_elems, m_num_1d_fields);
@@ -1288,6 +1301,7 @@ void BoundaryExchange::recv_and_unpack_min_max ()
   }
 #endif
   Kokkos::fence();
+  GPTLstop("amb_unpack_min_max");
 
   // If another BE structure starts an exchange, it has no way to check that
   // this object has finished its send requests, and may erroneously reuse the
