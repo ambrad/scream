@@ -325,6 +325,31 @@ void BoundaryExchange::exchange_min_max ()
   recv_and_unpack_min_max ();
 }
 
+static void
+pack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> ucon,
+      const ExecViewUnmanaged<const int*> ucon_ptr,
+      const ExecViewUnmanaged<ExecViewManaged<Real[NP][NP]>**> fields_2d,
+      const ExecViewUnmanaged<ExecViewUnmanaged<Real*>**> send_2d_buffers,
+      const int num_elems, const int num_2d_fields) {
+  HOMMEXX_STATIC const ConnectionHelpers helpers;
+  const int nconn = ucon.extent_int(0);
+  Kokkos::parallel_for(
+    Kokkos::RangePolicy<ExecSpace>(0, num_2d_fields*nconn),
+    KOKKOS_LAMBDA(const int it) {
+      const int iconn = it / num_2d_fields;
+      const int ifield = it % num_2d_fields;
+      const auto& info = ucon(iconn);
+      const int buffer_iconn = (info.sharing == etoi(ConnectionSharing::LOCAL) ?
+                                info.sharing_local_remote_iconn :
+                                iconn);
+      const auto& pts = helpers.CONNECTION_PTS[info.direction][info.local_dir];
+      const auto& sb = send_2d_buffers(ifield, buffer_iconn);
+      const auto& f2 = fields_2d(info.local_lid, ifield);
+      for (int k = 0; k < helpers.CONNECTION_SIZE[info.kind]; ++k)
+        sb(k) = f2(pts[k].ip, pts[k].jp);
+    });
+}
+
 template <int NUM_LEV_PACKS, bool partial_column=false>
 static void
 pack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> ucon,
@@ -522,13 +547,9 @@ void BoundaryExchange::pack_and_send ()
   const auto& ucon = m_connectivity->get_d_ucon();
   const auto& ucon_ptr = m_connectivity->get_d_ucon_ptr();
   // First, pack 2d fields (if any)...
-  if (m_num_2d_fields > 0) {
-    auto fields_2d = m_2d_fields;
-    auto send_2d_buffers = m_send_2d_buffers;
-    const ConnectionHelpers helpers;
-# pragma message "todo"
-    Errors::runtime_abort("todo 2D fields");
-  }
+  if (m_num_2d_fields > 0)
+    pack(ucon, ucon_ptr, m_2d_fields, m_send_2d_buffers, m_num_elems,
+         m_num_2d_fields);
   // ...then pack 3d fields (if any)...
   if (m_num_3d_fields > 0) {
     if (m_3d_nlev_pack_d.size() > 0)
@@ -539,10 +560,9 @@ void BoundaryExchange::pack_and_send ()
                     m_num_elems, m_num_3d_fields);
   }
   // ...then pack 3d interface fields (if any)
-  if (m_num_3d_int_fields > 0) {
+  if (m_num_3d_int_fields > 0)
     pack<NUM_LEV_P>(ucon, ucon_ptr, m_3d_int_fields, m_send_3d_int_buffers,
                     m_num_elems, m_num_3d_int_fields);
-  }
   Kokkos::fence(); GPTLstop("amb_pack_ucon");
 #else
   GPTLstart("amb_pack_scon");
@@ -602,6 +622,51 @@ void BoundaryExchange::pack_and_send ()
 
 void BoundaryExchange::recv_and_unpack () {
   recv_and_unpack(nullptr);
+}
+
+// assume:conn-edges-snwe
+static void
+unpack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> ucon,
+        const ExecViewUnmanaged<const int*> ucon_ptr,
+        const ExecViewUnmanaged<ExecViewManaged<Real[NP][NP]>**> fields_2d,
+        const ExecViewUnmanaged<ExecViewUnmanaged<Real*>**> recv_2d_buffers,
+        const ExecViewUnmanaged<const Real * [NP][NP]>* rspheremp,
+        const int num_elems, const int num_2d_fields) {
+  HOMMEXX_STATIC const ConnectionHelpers helpers;
+  Kokkos::parallel_for(
+    Kokkos::RangePolicy<ExecSpace>(0, num_elems*num_2d_fields),
+    KOKKOS_LAMBDA(const int it) {
+      const int ie = it / num_2d_fields;
+      const int ifield = it % num_2d_fields;
+      const auto iconn_beg = ucon_ptr(ie), iconn_end = ucon_ptr(ie+1);
+      const auto& f2 = fields_2d(ie, ifield);
+      for (int k = 0; k < NP; ++k) {
+        for (const int iedge : helpers.UNPACK_EDGES_ORDER) {
+          f2(helpers.CONNECTION_PTS_FWD[iedge][k].ip,
+             helpers.CONNECTION_PTS_FWD[iedge][k].jp)
+            += recv_2d_buffers(ifield, iconn_beg + iedge)(k);
+        }
+      }
+      for (int iconn = iconn_beg + 4; iconn < iconn_end; ++iconn) {
+        const auto dir = ucon(iconn).local_dir;
+        f2(helpers.CONNECTION_PTS_FWD[dir][0].ip,
+           helpers.CONNECTION_PTS_FWD[dir][0].jp)
+          += recv_2d_buffers(ifield, iconn)(0);
+      }
+    });  
+  if (rspheremp) {
+    Kokkos::fence();
+    const auto rsmp = *rspheremp;
+    Kokkos::parallel_for(
+      Kokkos::RangePolicy<ExecSpace>(0, num_elems*num_2d_fields*NP*NP),
+      KOKKOS_LAMBDA(const int it) {
+        const int ie = it / (num_2d_fields*NP*NP);
+        const int ifield = (it / (NP*NP)) % num_2d_fields;
+        const int i = (it / NP) % NP;
+        const int j = it % NP;
+        fields_2d(ie, ifield)(i, j) *= rsmp(ie, i, j);
+      });
+  }
 }
 
 // assume:conn-edges-snwe
@@ -858,13 +923,9 @@ void BoundaryExchange::recv_and_unpack (const ExecViewUnmanaged<const Real * [NP
   const auto& ucon = m_connectivity->get_d_ucon();
   const auto& ucon_ptr = m_connectivity->get_d_ucon_ptr();
   // First, unpack 2d fields (if any)...
-  if (m_num_2d_fields>0) {
-    auto fields_2d = m_2d_fields;
-    auto recv_2d_buffers = m_recv_2d_buffers;
-    const ConnectionHelpers helpers;
-# pragma message "todo"
-    Errors::runtime_abort("todo 2D fields");
-  }
+  if (m_num_2d_fields>0)
+    unpack(ucon, ucon_ptr, m_2d_fields, m_recv_2d_buffers, rspheremp, m_num_elems,
+           m_num_2d_fields);
   // ...then unpack 3d fields (if any)...
   if (m_num_3d_fields>0) {
     if (m_3d_nlev_pack_d.size() > 0)
@@ -875,10 +936,9 @@ void BoundaryExchange::recv_and_unpack (const ExecViewUnmanaged<const Real * [NP
                       m_num_elems, m_num_3d_fields);
   }
   // ...then unpack 3d interface fields (if any).
-  if (m_num_3d_int_fields > 0) {
+  if (m_num_3d_int_fields > 0)
     unpack<NUM_LEV_P>(ucon, ucon_ptr, m_3d_int_fields, m_recv_3d_int_buffers, rspheremp,
                       m_num_elems, m_num_3d_int_fields);
-  }
 #else
   // First, unpack 2d fields (if any)...
   if (m_num_2d_fields>0) {
@@ -997,9 +1057,7 @@ static void pack_min_max (
           Kokkos::parallel_for(ttr, [&] (const int& k) {
             auto* const sbp = &sb(k, 0);
             const auto* const f1p = &f1(k, 0);
-            Kokkos::parallel_for(
-              Kokkos::ThreadVectorRange(kv.team, NUM_LEV),
-              [&] (const int& ilev) { sbp[ilev] = f1p[ilev]; });
+            Kokkos::parallel_for(tvr, [&] (const int& ilev) { sbp[ilev] = f1p[ilev]; });
           });
         }
       });
@@ -1611,7 +1669,6 @@ void BoundaryExchange
   const auto& ucon = m_connectivity->get_h_ucon();
   const auto& ucon_ptr = m_connectivity->get_h_ucon_ptr();
   const size_t nconn = ucon.size();
-  const int nle = m_num_elems; // number of local elements
   const int mce = m_connectivity->get_max_corner_elements();
   const int n_idx_per_elem = 8*mce;
   std::vector<IP> i2remote(nconn);
