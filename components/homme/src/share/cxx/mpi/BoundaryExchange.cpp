@@ -695,20 +695,20 @@ unpack (const ExecViewUnmanaged<const HaloExchangeUnstructuredConnectionInfo*> u
             return;
         }
         const int ie = it / (num_3d_fields*NUM_LEV_PACKS);
-        const auto iconn_beg = ucon_ptr(ie), iconn_end = ucon_ptr(ie+1);
+        const auto iconn_beg = ucon_ptr(ie);
         const auto& f3 = fields_3d(ie, ifield);
         for (int k = 0; k < NP; ++k) {
           for (const int iedge : helpers.UNPACK_EDGES_ORDER) {
-            f3(helpers.CONNECTION_PTS_FWD[iedge][k].ip,
-               helpers.CONNECTION_PTS_FWD[iedge][k].jp, ilev)
-              += recv_3d_buffers(ifield, iconn_beg + iedge)(k, ilev);
+            const auto& pts = helpers.CONNECTION_PTS_FWD[iedge][k];
+            f3(pts.ip, pts.jp, ilev) +=
+              recv_3d_buffers(ifield, iconn_beg + iedge)(k, ilev);
           }
         }
+        const auto iconn_end = ucon_ptr(ie+1);
         for (int iconn = iconn_beg + 4; iconn < iconn_end; ++iconn) {
-          const auto dir = ucon(iconn).local_dir;
-          f3(helpers.CONNECTION_PTS_FWD[dir][0].ip,
-             helpers.CONNECTION_PTS_FWD[dir][0].jp, ilev)
-            += recv_3d_buffers(ifield, iconn)(0, ilev);
+          const auto& pts = helpers.CONNECTION_PTS_FWD[ucon(iconn).local_dir][0];
+          f3(pts.ip, pts.jp, ilev) +=
+            recv_3d_buffers(ifield, iconn)(0, ilev);
         }
       });
     if (rspheremp) {
