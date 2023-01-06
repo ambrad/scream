@@ -35,7 +35,7 @@ contains
     use prim_driver_base, only : deriv1, prim_init2_base => prim_init2
     use prim_state_mod,   only : prim_printstate
     use theta_f2c_mod,    only : initialize_dp3d_from_ps_c
-    use control_mod,      only : test_with_forcing
+    use control_mod,      only : prescribed_wind
     !
     ! Inputs
     !
@@ -49,7 +49,7 @@ contains
     ! Call the base version of prim_init2
     call prim_init2_base(elem,hybrid,nets,nete,tl,hvcoord)
 
-    if (test_with_forcing) then
+    if (prescribed_wind) then
        call init_standalone_test(elem,deriv1,hybrid,hvcoord,tl,nets,nete)
     end if
 
@@ -245,6 +245,8 @@ contains
     type (c_ptr) :: elem_state_phinh_i_ptr, elem_state_dp3d_ptr, elem_state_ps_v_ptr
     type (c_ptr) :: elem_state_Qdp_ptr
 
+    write(0,*) 'amb> prim_init_state_views'
+
     elem_state_v_ptr         = c_loc(elem_state_v)
     elem_state_w_i_ptr       = c_loc(elem_state_w_i)
     elem_state_vtheta_dp_ptr = c_loc(elem_state_vtheta_dp)
@@ -368,7 +370,7 @@ contains
     use hybvcoord_mod,  only : hvcoord_t
     use kinds,          only : real_kind
     use time_mod,       only : timelevel_t, nextOutputStep, nsplit, TimeLevel_Qdp
-    use control_mod,    only : statefreq
+    use control_mod,    only : statefreq, prescribed_wind
     use parallel_mod,   only : abortmp
     use perf_mod,       only : t_startf, t_stopf
     use prim_state_mod, only : prim_printstate
@@ -434,14 +436,17 @@ contains
     ! Test forcing is only for standalone Homme (and only for some tests/configurations)
     if (compute_forcing_and_push_to_c) then
       call compute_test_forcing_f(elem,hybrid,hvcoord,tl%n0,n0_qdp,max(dt_q,dt_remap),nets,nete,tl)
-      eta_ave_w = 1d0/qsplit
-      call set_prescribed_wind_f(elem,deriv1,hybrid,hvcoord,dt,tl,nets,nete,eta_ave_w)
       call t_startf('push_to_cxx')
       call push_forcing_to_c(elem_derived_FM,   elem_derived_FVTheta, elem_derived_FT, &
                              elem_derived_FPHI, elem_derived_FQ)
       call t_stopf('push_to_cxx')
-    endif
-
+    end if
+    ! Prescribed wind is only for standalone Homme (and only for some tests/configurations)
+    if (prescribed_wind) then
+      eta_ave_w = 1d0/qsplit
+      call set_prescribed_wind_f(elem,deriv1,hybrid,hvcoord,dt,tl,nets,nete,eta_ave_w)
+    end if
+   
     call prim_run_subcycle_c(dt,nstep_c,nm1_c,n0_c,np1_c,nextOutputStep,nsplit_iteration)
 
     ! Set final timelevels from C into Fortran structure

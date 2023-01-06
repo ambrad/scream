@@ -591,6 +591,22 @@ void init_boundary_exchanges_c ()
   }
 }
 
+void push_test_state_to_c (
+  CF90Ptr& ps_v_ptr, CF90Ptr& dp3d_ptr, CF90Ptr& vtheta_dp_ptr, CF90Ptr& phinh_i_ptr,
+  CF90Ptr& v_ptr, CF90Ptr& w_i_ptr, CF90Ptr& eta_dot_dpdn_ptr, CF90Ptr& vn0_ptr)
+{
+  const auto& c = Context::singleton();
+  auto& state = c.get<ElementsState>();
+  state.pull_from_f90_pointers(v_ptr, w_i_ptr, vtheta_dp_ptr, phinh_i_ptr, dp3d_ptr, ps_v_ptr);
+  auto& derived = c.get<ElementsDerivedState>();
+  HostViewUnmanaged<const Real*[NUM_INTERFACE_LEV][NP][NP]>
+    eta_dot_dpdn_h(eta_dot_dpdn_ptr, derived.num_elems());
+  HostViewUnmanaged<const Real*[NUM_PHYSICAL_LEV][2][NP][NP]>
+    vn0_h(vn0_ptr, derived.num_elems());
+  sync_to_device(eta_dot_dpdn_h, derived.m_eta_dot_dpdn);
+  sync_to_device(vn0_h, derived.m_vn0);
+}
+
 } // extern "C"
 
 } // namespace Homme
