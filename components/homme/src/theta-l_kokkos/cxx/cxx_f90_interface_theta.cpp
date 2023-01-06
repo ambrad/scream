@@ -158,10 +158,9 @@ void init_simulation_params_c (const int& remap_alg, const int& limiter_option, 
   }
 
   // TODO Parse a fortran string and set this properly. For now, our code does
-  // not depend on this except to throw an error in apply_test_forcing.
+  // not depend on this value.
   std::string test_name(*test_case);
-#pragma message "AMB todo parse test case"
-  params.test_case = TestCase::JW_BAROCLINIC;
+  params.test_case = TestCase::UNUSED;
 
   // Now this structure can be used safely
   params.params_set = true;

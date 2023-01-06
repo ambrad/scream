@@ -35,6 +35,7 @@ contains
     use prim_driver_base, only : deriv1, prim_init2_base => prim_init2
     use prim_state_mod,   only : prim_printstate
     use theta_f2c_mod,    only : initialize_dp3d_from_ps_c
+    use control_mod,      only : test_with_forcing
     !
     ! Inputs
     !
@@ -47,6 +48,10 @@ contains
 
     ! Call the base version of prim_init2
     call prim_init2_base(elem,hybrid,nets,nete,tl,hvcoord)
+
+    if (test_with_forcing) then
+       call init_standalone_test(elem,deriv1,hybrid,hvcoord,tl,nets,nete)
+    end if
 
     ! Init the c data structures
     call prim_create_c_data_structures(tl,hvcoord,elem(1)%mp)
@@ -391,7 +396,7 @@ contains
     type (c_ptr) :: elem_derived_omega_p_ptr
 
     integer :: n0_qdp, np1_qdp
-    real(kind=real_kind) :: dt_remap, dt_q
+    real(kind=real_kind) :: dt_remap, dt_q, eta_ave_w
 
     if (nsplit<1) then
       call abortmp ('nsplit_is less than 1.')
@@ -428,7 +433,9 @@ contains
 
     ! Test forcing is only for standalone Homme (and only for some tests/configurations)
     if (compute_forcing_and_push_to_c) then
-      call compute_test_forcing_dummy(elem,hybrid,hvcoord,tl%n0,n0_qdp,max(dt_q,dt_remap),nets,nete,tl)
+      call compute_test_forcing_f(elem,hybrid,hvcoord,tl%n0,n0_qdp,max(dt_q,dt_remap),nets,nete,tl)
+      eta_ave_w = 1d0/qsplit
+      call set_prescribed_wind_f(elem,deriv1,hybrid,hvcoord,dt,tl,nets,nete,eta_ave_w)
       call t_startf('push_to_cxx')
       call push_forcing_to_c(elem_derived_FM,   elem_derived_FVTheta, elem_derived_FT, &
                              elem_derived_FPHI, elem_derived_FQ)
@@ -565,8 +572,38 @@ contains
 
   end subroutine init_logic_for_push_to_f
 
+  subroutine init_standalone_test(elem,deriv,hybrid,hvcoord,tl,nets,nete)
+    ! set_prescribed_wind takes hvcoord as intent(inout) because it modifies it
+    ! in the first call. In the C++ dycore init, we need hvcoord already
+    ! established. This routine and set_prescribed_wind_f takes care of this
+    ! detail.
+    use hybrid_mod,       only : hybrid_t
+    use hybvcoord_mod,    only : hvcoord_t
+    use time_mod,         only : timelevel_t
+    use element_mod,      only : element_t
+    use derivative_mod,   only : derivative_t
+#if !defined(CAM) && !defined(SCREAM)
+    use test_mod,         only : set_prescribed_wind
+#endif
 
-  subroutine compute_test_forcing_dummy(elem,hybrid,hvcoord,nt,ntQ,dt,nets,nete,tl)
+    type (element_t),      intent(inout), target  :: elem(:)
+    type (derivative_t),   intent(in)             :: deriv
+    type (hybrid_t),       intent(in)             :: hybrid
+    type (hvcoord_t),      intent(inout)          :: hvcoord
+    type (TimeLevel_t)   , intent(in)             :: tl
+    integer              , intent(in)             :: nets
+    integer              , intent(in)             :: nete
+
+#if !defined(CAM) && !defined(SCREAM)
+    real(kind=real_kind) :: dt, eta_ave_w
+    
+    dt = 0        ! value unused in initialization
+    eta_ave_w = 0 ! same
+    call set_prescribed_wind(elem,deriv,hybrid,hvcoord,dt,tl,nets,nete,eta_ave_w)
+#endif        
+  end subroutine init_standalone_test
+
+  subroutine compute_test_forcing_f(elem,hybrid,hvcoord,nt,ntQ,dt,nets,nete,tl)
     use hybrid_mod,       only : hybrid_t
     use hybvcoord_mod,    only : hvcoord_t
     use time_mod,         only : timelevel_t
@@ -585,16 +622,44 @@ contains
 #if !defined(CAM) && !defined(SCREAM)
     call compute_test_forcing(elem,hybrid,hvcoord,nt,ntQ,dt,nets,nete,tl)
 #endif
+  end subroutine compute_test_forcing_f
 
-  end subroutine compute_test_forcing_dummy
+  subroutine set_prescribed_wind_f(elem,deriv,hybrid,hvcoord,dt,tl,nets,nete,eta_ave_w)
+    use hybrid_mod,       only : hybrid_t
+    use hybvcoord_mod,    only : hvcoord_t
+    use time_mod,         only : timelevel_t
+    use element_mod,      only : element_t
+    use derivative_mod,   only : derivative_t
+#if !defined(CAM) && !defined(SCREAM)
+    use test_mod,         only : set_prescribed_wind
+#endif
 
+    type (element_t),      intent(inout), target  :: elem(:)
+    type (derivative_t),   intent(in)             :: deriv
+    type (hvcoord_t),      intent(in)             :: hvcoord
+    type (hybrid_t),       intent(in)             :: hybrid
+    real (kind=real_kind), intent(in)             :: dt
+    type (TimeLevel_t)   , intent(in)             :: tl
+    integer              , intent(in)             :: nets
+    integer              , intent(in)             :: nete
+    real (kind=real_kind), intent(in)             :: eta_ave_w
 
+#if !defined(CAM) && !defined(SCREAM)
+    ! We need to set up an hvcoord_t that can be passed as intent(inout), even
+    ! though at this point, it won't be changed in the set_prescribed_wind call.
+    type (hvcoord_t) :: hv
 
+    hv%ps0  = hvcoord%ps0
+    hv%hyai = hvcoord%hyai
+    hv%hyam = hvcoord%hyam
+    hv%hybi = hvcoord%hybi
+    hv%hybm = hvcoord%hybm
+    hv%etam = hvcoord%etam
+    hv%etai = hvcoord%etai
+    hv%dp0  = hvcoord%dp0
 
-
-
-
-
-
+    call set_prescribed_wind(elem,deriv,hybrid,hv,dt,tl,nets,nete,eta_ave_w)
+#endif    
+  end subroutine set_prescribed_wind_f
 
 end module
