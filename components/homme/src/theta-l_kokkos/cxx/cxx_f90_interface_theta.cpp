@@ -51,7 +51,6 @@ void init_simulation_params_c (const int& remap_alg, const int& limiter_option, 
   // are currently 'assuming' some option have/not have certain values. As we support for more
   // options in the C++ build, we will remove some checks
   Errors::check_option("init_simulation_params_c","vert_remap_q_alg",remap_alg,{1,3,10});
-  Errors::check_option("init_simulation_params_c","prescribed_wind",prescribed_wind,{false});
   Errors::check_option("init_simulation_params_c","hypervis_order",hypervis_order,{2});
   Errors::check_option("init_simulation_params_c","transport_alg",transport_alg,{0,12});
   Errors::check_option("init_simulation_params_c","time_step_type",time_step_type,{1,4,5,6,7,9,10});
@@ -130,8 +129,8 @@ void init_simulation_params_c (const int& remap_alg, const int& limiter_option, 
     //5 stage, based on the 2nd order explicit KGU table
     //2nd order implicit table
     params.time_step_type = TimeStepType::ttype10_imex;
-  } else {
-    Errors::runtime_abort("Invalid time_step_time" 
+  } else if ( ! params.prescribed_wind) {
+    Errors::runtime_abort("Invalid time_step_type" 
                           + std::to_string(time_step_type), Errors::err_not_implemented);
   }
 
@@ -141,11 +140,11 @@ void init_simulation_params_c (const int& remap_alg, const int& limiter_option, 
     if (params.hypervis_scaling != 0.0) {
       params.nu_ratio1 = ratio * ratio;
       params.nu_ratio2 = 1.0;
-    }else{
+    } else {
       params.nu_ratio1 = ratio;
       params.nu_ratio2 = ratio;
     }
-  }else{
+  } else {
     params.nu_ratio1 = 1.0;
     params.nu_ratio2 = 1.0;
   }
@@ -161,7 +160,7 @@ void init_simulation_params_c (const int& remap_alg, const int& limiter_option, 
   // TODO Parse a fortran string and set this properly. For now, our code does
   // not depend on this except to throw an error in apply_test_forcing.
   std::string test_name(*test_case);
-  //TEMP
+#pragma message "AMB todo parse test case"
   params.test_case = TestCase::JW_BAROCLINIC;
 
   // Now this structure can be used safely
