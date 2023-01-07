@@ -1,7 +1,11 @@
 SET(NAME thetah-sl-test11conv-r0t1-cdr30-rrm)
 SET(TEST_NAME "${NAME}-cxx_vs_f90")
 
+SET(F90_TEST_NAME "${NAME}")
 SET(CXX_TEST_NAME "${NAME}-kokkos")
+SET(F90_DIR "${HOMME_BINARY_DIR}/tests/${F90_TEST_NAME}")
+SET(CXX_DIR "${HOMME_BINARY_DIR}/tests/${CXX_TEST_NAME}")
+SET(NC_OUTPUT_FILES dcmip2012_test1_1_conv1.nc)
 
 message("-- Adding test: ${TEST_NAME}")
 
