@@ -245,8 +245,6 @@ contains
     type (c_ptr) :: elem_state_phinh_i_ptr, elem_state_dp3d_ptr, elem_state_ps_v_ptr
     type (c_ptr) :: elem_state_Qdp_ptr
 
-    write(0,*) 'amb> prim_init_state_views'
-
     elem_state_v_ptr         = c_loc(elem_state_v)
     elem_state_w_i_ptr       = c_loc(elem_state_w_i)
     elem_state_vtheta_dp_ptr = c_loc(elem_state_vtheta_dp)
@@ -441,10 +439,8 @@ contains
                              elem_derived_FPHI, elem_derived_FQ)
       call t_stopf('push_to_cxx')
     end if
-    ! Prescribed wind is only for standalone Homme (and only for some tests/configurations)
-    if (prescribed_wind) then
-      eta_ave_w = 1d0/qsplit
-      call set_prescribed_wind_f(elem,deriv1,hybrid,hvcoord,dt,tl,nets,nete,eta_ave_w)
+    if (prescribed_wind) then ! standalone Homme
+      call set_prescribed_wind_f(elem,deriv1,hybrid,hvcoord,dt,tl,nets,nete)
     end if
    
     call prim_run_subcycle_c(dt,nstep_c,nm1_c,n0_c,np1_c,nextOutputStep,nsplit_iteration)
@@ -457,7 +453,7 @@ contains
 
     call init_logic_for_push_to_f(tl,statefreq,nextOutputStep,compute_diagnostics,nsplit_iteration)
 
-    if (push_to_f) then
+    if (.true. .or. push_to_f) then
       ! Set pointers to states
       elem_state_v_ptr         = c_loc(elem_state_v)
       elem_state_w_i_ptr       = c_loc(elem_state_w_i)
@@ -629,16 +625,23 @@ contains
 #endif
   end subroutine compute_test_forcing_f
 
-  subroutine set_prescribed_wind_f(elem,deriv,hybrid,hvcoord,dt,tl,nets,nete,eta_ave_w)
+  subroutine set_prescribed_wind_f(elem,deriv,hybrid,hvcoord,dt,tl,nets,nete)
+    use iso_c_binding,    only : c_ptr, c_loc
     use hybrid_mod,       only : hybrid_t
     use hybvcoord_mod,    only : hvcoord_t
     use time_mod,         only : timelevel_t
     use element_mod,      only : element_t
     use derivative_mod,   only : derivative_t
 #if !defined(CAM) && !defined(SCREAM)
+    use control_mod,      only : qsplit
+    use perf_mod,         only : t_startf, t_stopf
+    use theta_f2c_mod,    only : push_test_state_to_c
     use test_mod,         only : set_prescribed_wind
+    use element_state,    only : elem_state_v, elem_state_w_i, elem_state_vtheta_dp,     &
+                                 elem_state_phinh_i, elem_state_dp3d, elem_state_ps_v,   &
+                                 elem_derived_eta_dot_dpdn, elem_derived_vn0
 #endif
-
+    
     type (element_t),      intent(inout), target  :: elem(:)
     type (derivative_t),   intent(in)             :: deriv
     type (hvcoord_t),      intent(in)             :: hvcoord
@@ -647,13 +650,17 @@ contains
     type (TimeLevel_t)   , intent(in)             :: tl
     integer              , intent(in)             :: nets
     integer              , intent(in)             :: nete
-    real (kind=real_kind), intent(in)             :: eta_ave_w
 
 #if !defined(CAM) && !defined(SCREAM)
+    type (hvcoord_t) :: hv
+    type (c_ptr) :: elem_state_v_ptr, elem_state_w_i_ptr, elem_state_vtheta_dp_ptr, elem_state_phinh_i_ptr
+    type (c_ptr) :: elem_state_dp3d_ptr, elem_state_Qdp_ptr, elem_state_Q_ptr, elem_state_ps_v_ptr
+    type (c_ptr) :: elem_derived_eta_dot_dpdn_ptr, elem_derived_vn0_ptr
+    
+    real(kind=real_kind) :: eta_ave_w
+
     ! We need to set up an hvcoord_t that can be passed as intent(inout), even
     ! though at this point, it won't be changed in the set_prescribed_wind call.
-    type (hvcoord_t) :: hv
-
     hv%ps0  = hvcoord%ps0
     hv%hyai = hvcoord%hyai
     hv%hyam = hvcoord%hyam
@@ -663,7 +670,22 @@ contains
     hv%etai = hvcoord%etai
     hv%dp0  = hvcoord%dp0
 
+    eta_ave_w = 1d0/qsplit
     call set_prescribed_wind(elem,deriv,hybrid,hv,dt,tl,nets,nete,eta_ave_w)
+    
+    call t_startf('push_to_cxx')
+    elem_state_v_ptr         = c_loc(elem_state_v)
+    elem_state_w_i_ptr       = c_loc(elem_state_w_i)
+    elem_state_vtheta_dp_ptr = c_loc(elem_state_vtheta_dp)
+    elem_state_phinh_i_ptr   = c_loc(elem_state_phinh_i)
+    elem_state_dp3d_ptr      = c_loc(elem_state_dp3d)
+    elem_state_ps_v_ptr      = c_loc(elem_state_ps_v)
+    elem_derived_vn0_ptr     = c_loc(elem_derived_vn0)
+    elem_derived_eta_dot_dpdn_ptr = c_loc(elem_derived_eta_dot_dpdn)
+    call push_test_state_to_c(elem_state_ps_v_ptr, elem_state_dp3d_ptr, &
+         elem_state_vtheta_dp_ptr, elem_state_phinh_i_ptr, elem_state_v_ptr, &
+         elem_state_w_i_ptr, elem_derived_eta_dot_dpdn_ptr, elem_derived_vn0_ptr)
+    call t_stopf('push_to_cxx')
 #endif    
   end subroutine set_prescribed_wind_f
 
