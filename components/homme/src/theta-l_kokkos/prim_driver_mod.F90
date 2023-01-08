@@ -23,9 +23,6 @@ module prim_driver_mod
   public :: prim_init_ref_states_views
   public :: prim_init_diags_views
 
-  logical, private :: compute_forcing_and_push_to_c
-  logical, private :: push_to_f
-
 contains
 
   subroutine prim_init2(elem, hybrid, nets, nete, tl, hvcoord)
@@ -394,9 +391,9 @@ contains
     type (c_ptr) :: elem_state_v_ptr, elem_state_w_i_ptr, elem_state_vtheta_dp_ptr, elem_state_phinh_i_ptr
     type (c_ptr) :: elem_state_dp3d_ptr, elem_state_Qdp_ptr, elem_state_Q_ptr, elem_state_ps_v_ptr
     type (c_ptr) :: elem_derived_omega_p_ptr
-
     integer :: n0_qdp, np1_qdp
     real(kind=real_kind) :: dt_remap, dt_q, eta_ave_w
+    logical :: compute_forcing_and_push_to_c, push_to_f
 
     if (nsplit<1) then
       call abortmp ('nsplit_is less than 1.')
@@ -420,7 +417,7 @@ contains
       compute_diagnostics = .false.
     endif
 
-    call init_logic_for_push_to_c(nsplit_iteration)
+    compute_forcing_and_push_to_c = is_push_to_c_required(nsplit_iteration)
 
     dt_q = dt*dt_tracer_factor
     if (dt_remap_factor == 0) then
@@ -451,7 +448,7 @@ contains
     tl%n0    = n0_c  + 1
     tl%np1   = np1_c + 1
 
-    call init_logic_for_push_to_f(tl,statefreq,nextOutputStep,compute_diagnostics,nsplit_iteration)
+    push_to_f = is_push_to_f_required(tl,statefreq,nextOutputStep,compute_diagnostics,nsplit_iteration)
 
     if (.true. .or. push_to_f) then
       ! Set pointers to states
@@ -495,10 +492,13 @@ contains
 !test with forcing (not performant):
 ! (always forcing and push to c) -> (subcycle) -> (always push to f)
 
-  subroutine init_logic_for_push_to_c(nsplit_iter)
-
+  function is_push_to_c_required(nsplit_iter) result(compute_forcing_and_push_to_c)
+    
     use control_mod, only: test_with_forcing
+    
     integer,              intent(in) :: nsplit_iter
+
+    logical :: compute_forcing_and_push_to_c
 
     compute_forcing_and_push_to_c = .false.
 
@@ -518,10 +518,10 @@ contains
     endif
 #endif
 
-  end subroutine init_logic_for_push_to_c
+  end function is_push_to_c_required
 
-
-  subroutine init_logic_for_push_to_f(tl,statefreq,nextOutputStep,compute_diagnostics,nsplit_iter)
+  function is_push_to_f_required(tl,statefreq,nextOutputStep,compute_diagnostics,nsplit_iter) &
+       result(push_to_f)
 
     use control_mod, only: test_with_forcing
     use time_mod,    only : timelevel_t, nsplit
@@ -530,7 +530,7 @@ contains
     integer,              intent(in) :: statefreq, nextOutputStep, nsplit_iter
     logical,              intent(in) :: compute_diagnostics
  
-    logical                          :: time_for_homme_output
+    logical                          :: push_to_f, time_for_homme_output
 
     time_for_homme_output = &
          (MODULO(tl%nstep,statefreq)==0 .or. tl%nstep >= nextOutputStep .or. compute_diagnostics)
@@ -571,7 +571,7 @@ contains
 
 #endif
 
-  end subroutine init_logic_for_push_to_f
+  end function is_push_to_f_required
 
   subroutine init_standalone_test(elem,deriv,hybrid,hvcoord,tl,nets,nete)
     ! set_prescribed_wind takes hvcoord as intent(inout) because it modifies it
