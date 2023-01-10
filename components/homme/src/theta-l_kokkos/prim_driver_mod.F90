@@ -46,7 +46,7 @@ contains
     ! Call the base version of prim_init2
     call prim_init2_base(elem,hybrid,nets,nete,tl,hvcoord)
 
-    if (prescribed_wind) then
+    if (prescribed_wind == 1) then
        call init_standalone_test(elem,deriv1,hybrid,hvcoord,tl,nets,nete)
     end if
 
@@ -436,7 +436,7 @@ contains
                              elem_derived_FPHI, elem_derived_FQ)
       call t_stopf('push_to_cxx')
     end if
-    if (prescribed_wind) then ! standalone Homme
+    if (prescribed_wind == 1) then ! standalone Homme
       call set_prescribed_wind_f(elem,deriv1,hybrid,hvcoord,dt,tl,nets,nete)
     end if
    
