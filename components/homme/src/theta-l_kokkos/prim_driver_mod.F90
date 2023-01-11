@@ -598,12 +598,7 @@ contains
 
 #if !defined(CAM) && !defined(SCREAM)
     real(kind=real_kind) :: dt, eta_ave_w
-    integer :: ie
 
-    ! Zero eta_dot_dpdn for tests that have midpoint_eta_dot_dpdn = .true.
-    do ie = 1,nelemd
-       elem(ie)%derived%eta_dot_dpdn = 0
-    end do
     dt = 0        ! value unused in initialization
     eta_ave_w = 0 ! same
     call set_prescribed_wind(elem,deriv,hybrid,hvcoord,dt,tl,nets,nete,eta_ave_w)
