@@ -102,7 +102,7 @@ void HyperviscosityFunctorImpl::init_params(const SimulationParams& params)
       h_nu_scale_top(ilev)[ivec] = val;
 
       // This is the equivalent of nlev_tom in the F90 code.
-      if (val != 0) m_nu_scale_top_ilev_pack_lim = phys_lev;
+      if (val != 0) m_nu_scale_top_ilev_pack_lim = phys_lev + 1;
     }
     Kokkos::deep_copy(m_nu_scale_top, h_nu_scale_top);
 
