@@ -160,7 +160,7 @@ subroutine set_test_initial_conditions(elem, deriv, hybrid, hvcoord, tl, nets, n
 
     if (midpoint_eta_dot_dpdn) then
        do ie = nets,nete
-          !elem(ie)%derived%eta_dot_dpdn = 0
+          elem(ie)%derived%eta_dot_dpdn = 0
        end do
     end if
 end subroutine
