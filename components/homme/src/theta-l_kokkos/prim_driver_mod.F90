@@ -523,7 +523,7 @@ contains
   function is_push_to_f_required(tl,statefreq,nextOutputStep,compute_diagnostics,nsplit_iter) &
        result(push_to_f)
 
-    use control_mod, only: test_with_forcing
+    use control_mod, only : test_with_forcing, prescribed_wind
     use time_mod,    only : timelevel_t, nsplit
 
     type (TimeLevel_t),   intent(in) :: tl
@@ -570,6 +570,9 @@ contains
        push_to_f = .true.
     endif
 
+    ! In principle this shouldn't be needed, but there are roundoff-level errors
+    ! that develop if this isn't true.
+    if (prescribed_wind == 1) push_to_f = .true.
 #endif
 
   end function is_push_to_f_required
