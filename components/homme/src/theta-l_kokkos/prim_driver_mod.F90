@@ -450,7 +450,7 @@ contains
 
     push_to_f = is_push_to_f_required(tl,statefreq,nextOutputStep,compute_diagnostics,nsplit_iteration)
 
-    if (.true. .or. push_to_f) then
+    if (push_to_f) then
       ! Set pointers to states
       elem_state_v_ptr         = c_loc(elem_state_v)
       elem_state_w_i_ptr       = c_loc(elem_state_w_i)
@@ -532,6 +532,7 @@ contains
  
     logical                          :: push_to_f, time_for_homme_output
 
+    push_to_f = .false.
     time_for_homme_output = &
          (MODULO(tl%nstep,statefreq)==0 .or. tl%nstep >= nextOutputStep .or. compute_diagnostics)
 
