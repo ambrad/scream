@@ -1,0 +1,82 @@
+#include "share/atm_process/atmosphere_process.hpp"
+#include "share/field/field_utils.hpp"
+#include "ekat/ekat_assert.hpp"
+
+#include <cstdint>
+
+namespace scream {
+
+namespace {
+typedef std::uint64_t HashType;
+
+KOKKOS_INLINE_FUNCTION void hash (const HashType v, HashType& accum) {
+  constexpr auto first_bit = 1ULL << 63;
+  accum += ~first_bit & v; // no overflow
+  accum ^=  first_bit & v; // handle most significant bit  
+}
+
+KOKKOS_INLINE_FUNCTION void hash (const double v_, HashType& accum) {
+  HashType v;
+  std::memcpy(&v, &v_, sizeof(HashType));
+  hash(v, accum);
+}
+
+// For Kokkos::parallel_reduce.
+template <typename ExecSpace>
+struct HashReducer {
+  typedef HashReducer reducer;
+  typedef HashType value_type;
+  typedef Kokkos::View<value_type*, ExecSpace, Kokkos::MemoryUnmanaged> result_view_type;
+
+  KOKKOS_INLINE_FUNCTION HashReducer (value_type& value_) : value(value_) {}
+  KOKKOS_INLINE_FUNCTION void join (value_type& dest, const value_type& src) const { hash(src, dest); }
+  KOKKOS_INLINE_FUNCTION void init (value_type& val) const { val = 0; }
+  KOKKOS_INLINE_FUNCTION value_type& reference () const { return value; }
+  KOKKOS_INLINE_FUNCTION bool references_scalar() const { return true; }
+  KOKKOS_INLINE_FUNCTION result_view_type view() const { return result_view_type(&value, 1); }
+
+private:
+  value_type& value;
+};
+
+void reduce_hash (void* invec, void* inoutvec, int* len, MPI_Datatype* /* datatype */) {
+  const int n = *len;
+  const auto* s = reinterpret_cast<const HashType*>(invec);
+  auto* d = reinterpret_cast<HashType*>(inoutvec);
+  for (int i = 0; i < n; ++i) hash(s[i], d[i]);
+}
+
+int all_reduce_HashType (MPI_Comm comm, const HashType* sendbuf, HashType* rcvbuf,
+                         int count) {
+  static_assert(sizeof(long long int) == sizeof(HashType));
+  MPI_Op op;
+  MPI_Op_create(reduce_hash, true, &op);
+  return MPI_Allreduce(sendbuf, rcvbuf, count, MPI_LONG_LONG_INT, op, comm);
+  MPI_Op_free(&op);
+}
+
+void hash (const std::list<FieldGroup>& fgs, HashType& accum) {
+  
+}
+
+void hash (const std::list<Field>& fs, HashType& accum) {
+  
+}
+} // namespace anon
+
+void AtmosphereProcess::print_global_state_hash (const std::string& label) const {
+  HashType laccum[3] = {0};
+  hash(m_fields_in, laccum[0]);
+  hash(m_groups_in, laccum[0]);
+  hash(m_fields_out, laccum[1]);
+  hash(m_groups_out, laccum[1]);
+  hash(m_internal_fields, laccum[2]);
+  HashType gaccum[3];
+  all_reduce_HashType(m_comm.mpi_comm(), laccum, gaccum, 5);
+  if (m_comm.am_i_root())
+    for (int i = 0; i < 3; ++i)
+      fprintf(stderr, "exxhash> %10d %1d %16lx (%s)\n",
+              timestamp().get_num_steps(), i, gaccum[i], label.c_str());
+}
+
+} // namespace scream

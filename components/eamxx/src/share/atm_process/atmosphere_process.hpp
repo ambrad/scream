@@ -257,6 +257,8 @@ public:
   // Boolean that dictates whether or not the conservation checks are run for this process
   bool has_column_conservation_check () { return m_column_conservation_check_data.has_check; }
 
+  void print_global_state_hash(const std::string& label) const;
+  
 protected:
 
   // Sends a message to the atm log
