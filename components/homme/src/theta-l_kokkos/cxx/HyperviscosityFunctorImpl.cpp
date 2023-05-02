@@ -14,6 +14,8 @@
 #include "mpi/MpiBuffersManager.hpp"
 #include "mpi/Connectivity.hpp"
 
+#include "utilities/InternalDiagnostics.hpp"
+
 namespace Homme
 {
 
@@ -228,6 +230,7 @@ void HyperviscosityFunctorImpl::init_boundary_exchanges () {
 
 void HyperviscosityFunctorImpl::run (const int np1, const Real dt, const Real eta_ave_w)
 {
+  print_global_state_hash("HFFI-0");
   m_data.np1 = np1;
 
   m_data.dt = dt;
@@ -348,6 +351,7 @@ void HyperviscosityFunctorImpl::run (const int np1, const Real dt, const Real et
       Kokkos::fence();
     }
   } // for sponge layer
+  print_global_state_hash("HFFI-1");
 } // run()
 
 void HyperviscosityFunctorImpl::biharmonic_wk_theta() const

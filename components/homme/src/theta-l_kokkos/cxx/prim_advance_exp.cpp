@@ -17,6 +17,8 @@
 
 #include "profiling.hpp"
 
+#include "utilities/InternalDiagnostics.hpp"
+
 namespace Homme
 {
 
@@ -221,6 +223,7 @@ void ttype9_imex_timestep(const TimeLevel& tl,
 {
 
   GPTLstart("ttype9_imex_timestep");
+  print_global_state_hash("tt9-0");
 
   // The context
   const auto& c = Context::singleton();
@@ -250,26 +253,35 @@ void ttype9_imex_timestep(const TimeLevel& tl,
 // Names of timelevels in RK:
 //         RKStageData (const int nm1_in, const int n0_in, const int np1_in, const int n0_qdp_in ...
   caar.run(RKStageData(n0, n0, nm1, qn0, dt, eta_ave_w/4.0, 1.0, 0.0, 1.0));
+  print_global_state_hash("tt9-1");
   dirk.run(nm1, 0.0, n0, 0.0, nm1, dt, elements, hvcoord);
+  print_global_state_hash("tt9-2");
 
   // Stage 2
   dt = dt_dyn/5.0;
   caar.run(RKStageData(n0, nm1, np1, qn0, dt, 0.0, 1.0, 0.0, 1.0));
+  print_global_state_hash("tt9-3");
   dirk.run(nm1, 0.0, n0, 0.0, np1, dt, elements, hvcoord);
+  print_global_state_hash("tt9-4");
 
   // Stage 3
   dt = dt_dyn/3.0;
   caar.run(RKStageData(n0, np1, np1, qn0, dt, 0.0, 1.0, 0.0, 1.0));
+  print_global_state_hash("tt9-5");
   dirk.run(nm1, 0.0, n0, 0.0, np1, dt, elements, hvcoord);
+  print_global_state_hash("tt9-6");
 
   // Stage 4
   dt = 2.0*dt_dyn/3.0;
   caar.run(RKStageData(n0, np1, np1, qn0, dt, 0.0, 1.0, 0.0, 1.0));
+  print_global_state_hash("tt9-7");
   dirk.run(nm1, 0.0, n0, 0.0, np1, dt, elements, hvcoord);
+  print_global_state_hash("tt9-8");
 
   // Stage 5
   dt = 3.0*dt_dyn/4.0;
   caar.run(RKStageData(nm1, np1, np1, qn0, dt, 3.0*eta_ave_w/4.0, 1.0, 0.0, 1.0));
+  print_global_state_hash("tt9-9");
   // u(np1) = [u1 + 3dt/4 RHS(u4)] +  1/4 (u1 - u0)
   { 
     const auto v         = elements.m_state.m_v;
@@ -308,12 +320,15 @@ void ttype9_imex_timestep(const TimeLevel& tl,
     }
   }
   Kokkos::fence();
+  print_global_state_hash("tt9-10");
   limiter.run(np1);
+  print_global_state_hash("tt9-11");
 
   Real a1 = 5.0*dt_dyn/18.0;
   Real a2 = dt_dyn/36.0;
   Real a3 = 8.0*dt_dyn/18.0;
   dirk.run(nm1, a2, n0, a1, np1, a3, elements, hvcoord);
+  print_global_state_hash("tt9-12");
 
   GPTLstop("ttype9_imex_timestep");
 
