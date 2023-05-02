@@ -32,8 +32,8 @@ struct HashReducer {
   KOKKOS_INLINE_FUNCTION void join (value_type& dest, const value_type& src) const { hash(src, dest); }
   KOKKOS_INLINE_FUNCTION void init (value_type& val) const { val = 0; }
   KOKKOS_INLINE_FUNCTION value_type& reference () const { return value; }
-  KOKKOS_INLINE_FUNCTION bool references_scalar() const { return true; }
-  KOKKOS_INLINE_FUNCTION result_view_type view() const { return result_view_type(&value, 1); }
+  KOKKOS_INLINE_FUNCTION bool references_scalar () const { return true; }
+  KOKKOS_INLINE_FUNCTION result_view_type view () const { return result_view_type(&value, 1); }
 
 private:
   value_type& value;
@@ -65,18 +65,20 @@ void hash (const std::list<Field>& fs, HashType& accum) {
 } // namespace anon
 
 void AtmosphereProcess::print_global_state_hash (const std::string& label) const {
-  HashType laccum[3] = {0};
+  static constexpr int nslot = 3;
+  HashType laccum[nslot] = {0};
   hash(m_fields_in, laccum[0]);
   hash(m_groups_in, laccum[0]);
   hash(m_fields_out, laccum[1]);
   hash(m_groups_out, laccum[1]);
   hash(m_internal_fields, laccum[2]);
-  HashType gaccum[3];
-  all_reduce_HashType(m_comm.mpi_comm(), laccum, gaccum, 5);
+  HashType gaccum[nslot];
+  all_reduce_HashType(m_comm.mpi_comm(), laccum, gaccum, nslot);
   if (m_comm.am_i_root())
-    for (int i = 0; i < 3; ++i)
-      fprintf(stderr, "exxhash> %10d %1d %16lx (%s)\n",
-              timestamp().get_num_steps(), i, gaccum[i], label.c_str());
+    for (int i = 0; i < nslot; ++i)
+      fprintf(stderr, "exxhash> %4d-%9.5f %1d %16lx (%s)\n",
+              timestamp().get_year(), timestamp().frac_of_year_in_days(),
+              i, gaccum[i], label.c_str());
 }
 
 } // namespace scream
