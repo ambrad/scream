@@ -1,5 +1,6 @@
 #include "share/atm_process/atmosphere_process.hpp"
 #include "share/field/field_utils.hpp"
+#include "share/util/scream_array_utils.hpp"
 #include "ekat/ekat_assert.hpp"
 
 #include <cstdint>
@@ -55,12 +56,96 @@ int all_reduce_HashType (MPI_Comm comm, const HashType* sendbuf, HashType* rcvbu
   MPI_Op_free(&op);
 }
 
-void hash (const std::list<FieldGroup>& fgs, HashType& accum) {
+using ExeSpace = KokkosTypes<DefaultDevice>::ExeSpace;
+
+void hash (const Field::view_dev_t<const Real*>& v,
+           const FieldLayout& lo, HashType& accum_out) {
+  HashType accum;
+  const auto dims = lo.extents();
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, lo.size()),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      hash(v(idx), accum);
+    }, HashReducer<ExeSpace>(accum));
+  hash(accum, accum_out);  
+}
+
+void hash (const Field::view_dev_t<const Real**>& v,
+           const FieldLayout& lo, HashType& accum_out) {
+  HashType accum;
+  const auto dims = lo.extents();
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, lo.size()),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      int i, j;
+      unflatten_idx(idx, dims, i, j);
+      hash(v(i,j), accum);
+    }, HashReducer<ExeSpace>(accum));
+  hash(accum, accum_out);  
+}
+
+void hash (const Field::view_dev_t<const Real***>& v,
+           const FieldLayout& lo, HashType& accum_out) {
+  HashType accum;
+  const auto dims = lo.extents();
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, lo.size()),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      int i, j, k;
+      unflatten_idx(idx, dims, i, j, k);
+      hash(v(i,j,k), accum);
+    }, HashReducer<ExeSpace>(accum));
+  hash(accum, accum_out);    
+}
+
+void hash (const Field::view_dev_t<const Real****>& v,
+           const FieldLayout& lo, HashType& accum_out) {
+  HashType accum;
+  const auto dims = lo.extents();
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, lo.size()),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      int i, j, k, m;
+      unflatten_idx(idx, dims, i, j, k, m);
+      hash(v(i,j,k,m), accum);
+    }, HashReducer<ExeSpace>(accum));
+  hash(accum, accum_out);      
+}
+
+void hash (const Field::view_dev_t<const Real*****>& v,
+           const FieldLayout& lo, HashType& accum_out) {
+  HashType accum;
+  const auto dims = lo.extents();
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, lo.size()),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      int i, j, k, m, n;
+      unflatten_idx(idx, dims, i, j, k, m, n);
+      hash(v(i,j,k,m,n), accum);
+    }, HashReducer<ExeSpace>(accum));
+  hash(accum, accum_out);        
+}
+
+void hash (const std::list<FieldGroup>& fgs, HashType& accum_out) {
   
 }
 
 void hash (const std::list<Field>& fs, HashType& accum) {
-  
+  for (const auto& f : fs) {
+    const auto& hd = f.get_header();
+    const auto& id = hd.get_identifier();
+    if (id.data_type() != DataType::DoubleType) continue;
+    const auto& lo = id.get_layout();
+    const auto rank = lo.rank();
+    switch (rank) {
+    case 1: hash(f.get_view<const Real*    >(), lo, accum); break;
+    case 2: hash(f.get_view<const Real**   >(), lo, accum); break;
+    case 3: hash(f.get_view<const Real***  >(), lo, accum); break;
+    case 4: hash(f.get_view<const Real**** >(), lo, accum); break;
+    case 5: hash(f.get_view<const Real*****>(), lo, accum); break;
+    default: continue;
+    }
+  }
 }
 } // namespace anon
 
