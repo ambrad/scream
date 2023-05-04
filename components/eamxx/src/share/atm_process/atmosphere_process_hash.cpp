@@ -166,4 +166,14 @@ void AtmosphereProcess::print_global_state_hash (const std::string& label) const
               i, gaccum[i], label.c_str());
 }
 
+void AtmosphereProcess::print_fast_global_state_hash (const std::string& label) const {
+  HashType laccum;
+  hash(m_fields_in, laccum);
+  HashType gaccum;
+  all_reduce_HashType(m_comm.mpi_comm(), &laccum, &gaccum, 1);
+  if (m_comm.am_i_root())
+    fprintf(stderr, "bfbhash> %14d %16lx (%s)\n",
+            timestamp().get_num_steps(), gaccum, label.c_str());
+}
+
 } // namespace scream

@@ -257,7 +257,10 @@ public:
   // Boolean that dictates whether or not the conservation checks are run for this process
   bool has_column_conservation_check () { return m_column_conservation_check_data.has_check; }
 
+  // For internal diagnostics and debugging.
   void print_global_state_hash(const std::string& label) const;
+  // For BFB tracking in production simulations.
+  void print_fast_global_state_hash(const std::string& label) const;
   
 protected:
 
