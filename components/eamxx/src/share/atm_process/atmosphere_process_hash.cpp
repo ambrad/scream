@@ -17,13 +17,15 @@ KOKKOS_INLINE_FUNCTION void hash (const HashType v, HashType& accum) {
 }
 
 KOKKOS_INLINE_FUNCTION void hash (const double v_, HashType& accum) {
+  static_assert(sizeof(double) == sizeof(HashType),
+                "HashType must have size sizeof(double).");
   HashType v;
   std::memcpy(&v, &v_, sizeof(HashType));
   hash(v, accum);
 }
 
 // For Kokkos::parallel_reduce.
-template <typename ExecSpace>
+template <typename ExecSpace = Kokkos::HostSpace>
 struct HashReducer {
   typedef HashReducer reducer;
   typedef HashType value_type;
@@ -49,81 +51,87 @@ void reduce_hash (void* invec, void* inoutvec, int* len, MPI_Datatype* /* dataty
 
 int all_reduce_HashType (MPI_Comm comm, const HashType* sendbuf, HashType* rcvbuf,
                          int count) {
-  static_assert(sizeof(long long int) == sizeof(HashType));
+  static_assert(sizeof(long long int) == sizeof(HashType),
+                "HashType must have size sizeof(long long int).");
   MPI_Op op;
   MPI_Op_create(reduce_hash, true, &op);
-  return MPI_Allreduce(sendbuf, rcvbuf, count, MPI_LONG_LONG_INT, op, comm);
+  const auto stat = MPI_Allreduce(sendbuf, rcvbuf, count, MPI_LONG_LONG_INT, op, comm);
   MPI_Op_free(&op);
+  return stat;
 }
 
 using ExeSpace = KokkosTypes<DefaultDevice>::ExeSpace;
 
 void hash (const Field::view_dev_t<const Real*>& v,
            const FieldLayout& lo, HashType& accum_out) {
-  HashType accum;
-  const auto dims = lo.extents();
+  HashType accum = 0;
   Kokkos::parallel_reduce(
     Kokkos::RangePolicy<ExeSpace>(0, lo.size()),
     KOKKOS_LAMBDA(const int idx, HashType& accum) {
       hash(v(idx), accum);
-    }, HashReducer<ExeSpace>(accum));
+    }, HashReducer<>(accum));
+  Kokkos::fence();
   hash(accum, accum_out);  
 }
 
 void hash (const Field::view_dev_t<const Real**>& v,
            const FieldLayout& lo, HashType& accum_out) {
-  HashType accum;
-  const auto dims = lo.extents();
+  HashType accum = 0;
+  const auto& dims = lo.extents();
   Kokkos::parallel_reduce(
     Kokkos::RangePolicy<ExeSpace>(0, lo.size()),
     KOKKOS_LAMBDA(const int idx, HashType& accum) {
       int i, j;
       unflatten_idx(idx, dims, i, j);
       hash(v(i,j), accum);
-    }, HashReducer<ExeSpace>(accum));
-  hash(accum, accum_out);  
+    }, HashReducer<>(accum));
+  Kokkos::fence();
+  hash(accum, accum_out);
 }
 
 void hash (const Field::view_dev_t<const Real***>& v,
            const FieldLayout& lo, HashType& accum_out) {
-  HashType accum;
-  const auto dims = lo.extents();
+  HashType accum = 0;
+  const auto& dims = lo.extents();
   Kokkos::parallel_reduce(
     Kokkos::RangePolicy<ExeSpace>(0, lo.size()),
     KOKKOS_LAMBDA(const int idx, HashType& accum) {
       int i, j, k;
       unflatten_idx(idx, dims, i, j, k);
       hash(v(i,j,k), accum);
-    }, HashReducer<ExeSpace>(accum));
-  hash(accum, accum_out);    
+    }, HashReducer<>(accum));
+  Kokkos::fence();
+  hash(accum, accum_out);
 }
 
 void hash (const Field::view_dev_t<const Real****>& v,
            const FieldLayout& lo, HashType& accum_out) {
-  HashType accum;
-  const auto dims = lo.extents();
+  HashType accum = 0;
+  const auto& dims = lo.extents();
   Kokkos::parallel_reduce(
     Kokkos::RangePolicy<ExeSpace>(0, lo.size()),
     KOKKOS_LAMBDA(const int idx, HashType& accum) {
       int i, j, k, m;
       unflatten_idx(idx, dims, i, j, k, m);
       hash(v(i,j,k,m), accum);
-    }, HashReducer<ExeSpace>(accum));
-  hash(accum, accum_out);      
+    }, HashReducer<>(accum));
+  Kokkos::fence();
+  hash(accum, accum_out);
 }
 
 void hash (const Field::view_dev_t<const Real*****>& v,
            const FieldLayout& lo, HashType& accum_out) {
-  HashType accum;
-  const auto dims = lo.extents();
+  HashType accum = 0;
+  const auto& dims = lo.extents();
   Kokkos::parallel_reduce(
     Kokkos::RangePolicy<ExeSpace>(0, lo.size()),
     KOKKOS_LAMBDA(const int idx, HashType& accum) {
       int i, j, k, m, n;
       unflatten_idx(idx, dims, i, j, k, m, n);
       hash(v(i,j,k,m,n), accum);
-    }, HashReducer<ExeSpace>(accum));
-  hash(accum, accum_out);        
+    }, HashReducer<>(accum));
+  Kokkos::fence();
+  hash(accum, accum_out);
 }
 
 void hash (const std::list<FieldGroup>& fgs, HashType& accum_out) {
@@ -167,7 +175,7 @@ void AtmosphereProcess::print_global_state_hash (const std::string& label) const
 }
 
 void AtmosphereProcess::print_fast_global_state_hash (const std::string& label) const {
-  HashType laccum;
+  HashType laccum = 0;
   hash(m_fields_in, laccum);
   HashType gaccum;
   all_reduce_HashType(m_comm.mpi_comm(), &laccum, &gaccum, 1);
