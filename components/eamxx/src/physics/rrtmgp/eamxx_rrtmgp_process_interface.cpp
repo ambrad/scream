@@ -9,8 +9,47 @@
 #include "cpp/rrtmgp/mo_gas_concentrations.h"
 #include "YAKL.h"
 #include "ekat/ekat_assert.hpp"
+#include "share/util/scream_bfbhash.hpp"
 
 namespace scream {
+namespace bfbhash {
+
+using ExeSpace = KokkosTypes<DefaultDevice>::ExeSpace;
+
+static HashType reduce (const char* label, const HashType accum) {
+  HashType gaccum = 0;
+  all_reduce_HashType(MPI_COMM_WORLD, &accum, &gaccum, 1);
+  int pid;
+  MPI_Comm_rank(MPI_COMM_WORLD, &pid);
+  if (pid == 0) printf("amb> %35s %16lx\n", label, gaccum);
+  return gaccum;  
+}
+
+static HashType hash (const char* label, const Field::view_dev_t<const Real*>& a, const int m) {
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      bfbhash::hash(a(idx), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+static HashType hash (const char* label, const Field::view_dev_t<const Real**>& a, const int m, const int n) {
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m*n),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      const int i = idx / n;
+      const int j = idx % n;
+      bfbhash::hash(a(i,j), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+} // namespace bfbhash
 
 using KT = KokkosTypes<DefaultDevice>;
 using ExeSpace = KT::ExeSpace;
@@ -992,6 +1031,9 @@ void RRTMGPRadiation::run_impl (const double dt) {
       }
     });
   });
+  Kokkos::fence();
+  scream::bfbhash::hash("run d_rad_heating_pdel", d_rad_heating_pdel, ncols, nlays);
+  scream::bfbhash::hash("run d_tmid", d_tmid, ncols, nlays);
 
   // If necessary, set appropriate boundary fluxes for energy and mass conservation checks.
   // Any boundary fluxes not included in radiation interface are set to 0.
@@ -1018,8 +1060,9 @@ void RRTMGPRadiation::run_impl (const double dt) {
 
       heat_flux(icol) = (fsnt - fsns) - (flnt - flns);
     });
+    Kokkos::fence();
+    scream::bfbhash::hash("run heat_flux", heat_flux, ncols);
   }
-
 }
 // =========================================================================================
 
