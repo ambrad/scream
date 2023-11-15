@@ -9,6 +9,66 @@
 #include "cpp/rte/mo_rte_lw.h"
 #include "physics/share/physics_constants.hpp"
 #include "ekat/util/ekat_math_utils.hpp"
+#include "share/util/scream_bfbhash.hpp"
+
+namespace scream {
+namespace bfbhash {
+
+using ExeSpace = KokkosTypes<DefaultDevice>::ExeSpace;
+
+static HashType reduce (const char* label, const HashType accum) {
+  HashType gaccum = 0;
+  all_reduce_HashType(MPI_COMM_WORLD, &accum, &gaccum, 1);
+  int pid;
+  MPI_Comm_rank(MPI_COMM_WORLD, &pid);
+  if (pid == 0) printf("amb> %35s %16lx\n", label, gaccum);
+  return gaccum;  
+}
+
+static HashType hash (const char* label, const real1d& a, const int m) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      const int i = idx;
+      bfbhash::hash(a(i+1), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+static HashType hash (const char* label, const real2d& a, const int m, const int n) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m*n),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      const int i = idx / n;
+      const int j = idx % n;
+      bfbhash::hash(a(i+1,j+1), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+static HashType hash (const char* label, const real3d& a, const int m, const int n, const int o) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m*n*o),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      const int i = idx / (n*o);
+      const int j = (idx / o) % n;
+      const int k = idx % o;
+      bfbhash::hash(a(i+1,j+1,k+1), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+} // namespace bfbhash
+} // namespace scream
 
 namespace scream {
     void yakl_init ()
@@ -151,6 +211,8 @@ namespace scream {
 
               }
             });
+            scream::bfbhash::hash("bbb sfc_alb_dir", sfc_alb_dir, ncol, nswbands);
+            scream::bfbhash::hash("bbb sfc_alb_dif", sfc_alb_dif, ncol, nswbands);
         }
 
 
@@ -207,6 +269,8 @@ namespace scream {
                 }
               }
             });
+            scream::bfbhash::hash("sflx sfc_flux_dir_vis", sfc_flux_dir_vis, ncol);
+            scream::bfbhash::hash("sflx sfc_flux_dif_nir", sfc_flux_dif_nir, ncol);
         }
 
  
@@ -755,6 +819,10 @@ namespace scream {
                 clrsky_flux_dn_dir(icol,ilev) = flux_dn_dir_day(iday,ilev);
             });
 
+            scream::bfbhash::hash("lw clrsky_flux_up", clrsky_flux_up, ncol, nlay+1);
+            scream::bfbhash::hash("lw clrsky_flux_dn", clrsky_flux_dn, ncol, nlay+1);
+            scream::bfbhash::hash("lw clrsky_flux_dn_dir", clrsky_flux_dn_dir, ncol, nlay+1);
+
             // Now merge in cloud optics and do allsky calculations
 
             // Combine gas and cloud optics
@@ -775,6 +843,9 @@ namespace scream {
                 bnd_flux_dn    (icol,ilev,ibnd) = bnd_flux_dn_day    (iday,ilev,ibnd);
                 bnd_flux_dn_dir(icol,ilev,ibnd) = bnd_flux_dn_dir_day(iday,ilev,ibnd);
             });
+            scream::bfbhash::hash("sw bnd_flux_up", bnd_flux_up, ncol, nlay+1, nbnd);
+            scream::bfbhash::hash("sw bnd_flux_dn", bnd_flux_dn, ncol, nlay+1, nbnd);
+            scream::bfbhash::hash("sw bnd_flux_dn_dir", bnd_flux_dn_dir, ncol, nlay+1, nbnd);
         }
 
         void rrtmgp_lw(
@@ -849,13 +920,18 @@ namespace scream {
 
             // Compute clear-sky fluxes before we add in clouds
             rte_lw(max_gauss_pts, gauss_Ds, gauss_wts, optics, top_at_1, lw_sources, emis_sfc, clrsky_fluxes);
+            scream::bfbhash::hash("rte_lw clrsky flux_up", clrsky_fluxes.flux_up, ncol, nlay+1);
+            scream::bfbhash::hash("rte_lw clrsky flux_dn", clrsky_fluxes.flux_dn, ncol, nlay+1);
+            scream::bfbhash::hash("rte_lw clrsky flux_dn_dir", clrsky_fluxes.flux_dn_dir, ncol, nlay+1);
 
             // Combine gas and cloud optics
             clouds.increment(optics);
 
             // Compute allsky fluxes
             rte_lw(max_gauss_pts, gauss_Ds, gauss_wts, optics, top_at_1, lw_sources, emis_sfc, fluxes);
-
+            scream::bfbhash::hash("rte_lw flux_up", fluxes.flux_up, ncol, nlay+1);
+            scream::bfbhash::hash("rte_lw flux_dn", fluxes.flux_dn, ncol, nlay+1);
+            scream::bfbhash::hash("rte_lw flux_dn_dir", fluxes.flux_dn_dir, ncol, nlay+1);
         }
 
         void compute_cloud_area(
@@ -1005,6 +1081,7 @@ namespace scream {
                 // (their products)
                 cldfrac_tot_at_cldtop(icol) = 1.0 - aerocom_clr(icol);
               });
+          scream::bfbhash::hash("cldfrac_tot_at_cldtop", cldfrac_tot_at_cldtop, ncol);
         }
     }  // namespace rrtmgp
 }  // namespace scream
