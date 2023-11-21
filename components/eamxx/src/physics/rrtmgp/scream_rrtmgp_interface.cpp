@@ -11,6 +11,8 @@
 #include "ekat/util/ekat_math_utils.hpp"
 #include "share/util/scream_bfbhash.hpp"
 
+using yakl::intrinsics::size;
+
 namespace scream {
 namespace bfbhash {
 
@@ -62,6 +64,88 @@ static HashType hash (const char* label, const real3d& a, const int m, const int
       const int j = (idx / o) % n;
       const int k = idx % o;
       bfbhash::hash(a(i+1,j+1,k+1), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+static HashType hash (const char* label, const real1d& a) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  const auto m = size(a,1);
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      const int i = idx;
+      bfbhash::hash(a(i+1), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+static HashType hash (const char* label, const real2d& a) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  const auto m = size(a,1);
+  const auto n = size(a,2);
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m*n),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      const int i = idx / n;
+      const int j = idx % n;
+      bfbhash::hash(a(i+1,j+1), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+static HashType hash (const char* label, const real3d& a) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  const auto m = size(a,1);
+  const auto n = size(a,2);
+  const auto o = size(a,3);
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m*n*o),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      const int i = idx / (n*o);
+      const int j = (idx / o) % n;
+      const int k = idx % o;
+      bfbhash::hash(a(i+1,j+1,k+1), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+static HashType hashwtf (const char* label, const real3d& a) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  const auto n = a.size();
+  HashType accum = 0;
+  const auto data = a.data();
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, n),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      bfbhash::hash(data[idx], accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+static HashType hash (const char* label, const real4d& a) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  const auto m = size(a,1);
+  const auto n = size(a,2);
+  const auto o = size(a,3);
+  const auto p = size(a,4);
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m*n*o*p),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      const int i = idx / (n*o*p);
+      const int j = (idx / (o*p)) % n;
+      const int k = (idx / p) % o;
+      const int l = idx % p;
+      bfbhash::hash(a(i+1,j+1,k+1,l+1), accum);
     }, bfbhash::HashReducer<>(accum));
   Kokkos::fence();
   return reduce(label, accum);
@@ -346,11 +430,15 @@ namespace scream {
                 aerosol_sw.ssa(icol,ilay,ibnd) = aer_ssa_sw(icol,ilay,ibnd);
                 aerosol_sw.g  (icol,ilay,ibnd) = aer_asm_sw(icol,ilay,ibnd);
             });
+            scream::bfbhash::hash("ma asw tau", aerosol_sw.tau, ncol, nlay, nswbands);
+            scream::bfbhash::hash("ma asw ssa", aerosol_sw.ssa, ncol, nlay, nswbands);
+            scream::bfbhash::hash("ma asw g", aerosol_sw.g, ncol, nlay, nswbands);
             aerosol_lw.init(k_dist_lw.get_band_lims_wavenumber());
             aerosol_lw.alloc_1scl(ncol, nlay);
             parallel_for(SimpleBounds<3>(nlwbands,nlay,ncol) , YAKL_LAMBDA (int ibnd, int ilay, int icol) {
                 aerosol_lw.tau(icol,ilay,ibnd) = aer_tau_lw(icol,ilay,ibnd);
             });
+            scream::bfbhash::hash("ma alw tau", aerosol_lw.tau, ncol, nlay, nlwbands);
 
 #ifdef SCREAM_RRTMGP_DEBUG
             // Check aerosol optical properties
@@ -363,19 +451,61 @@ namespace scream {
 #endif
 
             // Convert cloud physical properties to optical properties for input to RRTMGP
+            {
+              auto& c = cloud_optics_sw;
+              scream::bfbhash::hash("ma cos lut_extliq", c.        lut_extliq        );
+              scream::bfbhash::hash("ma cos lut_ssaliq", c.        lut_ssaliq        );
+              scream::bfbhash::hash("ma cos lut_asyliq", c.        lut_asyliq        );
+              scream::bfbhash::hash("ma cos lut_extice", c.        lut_extice        );
+              scream::bfbhash::hash("ma cos lut_ssaice", c.        lut_ssaice        );
+              scream::bfbhash::hash("ma cos lut_asyice", c.        lut_asyice        );
+              scream::bfbhash::hash("ma cos pade_extliq", c.       pade_extliq       );
+              scream::bfbhash::hash("ma cos pade_ssaliq", c.       pade_ssaliq       );
+              scream::bfbhash::hash("ma cos pade_asyliq", c.       pade_asyliq       );
+              scream::bfbhash::hash("ma cos pade_extice", c.       pade_extice       );
+              scream::bfbhash::hash("ma cos pade_ssaice", c.       pade_ssaice       );
+              scream::bfbhash::hash("ma cos pade_asyice", c.       pade_asyice       );
+              scream::bfbhash::hash("ma cos pade_sizreg_extliq", c.pade_sizreg_extliq);
+              scream::bfbhash::hash("ma cos pade_sizreg_ssaliq", c.pade_sizreg_ssaliq);
+              scream::bfbhash::hash("ma cos pade_sizreg_asyliq", c.pade_sizreg_asyliq);
+              scream::bfbhash::hash("ma cos pade_sizreg_extice", c.pade_sizreg_extice);
+              scream::bfbhash::hash("ma cos pade_sizreg_ssaice", c.pade_sizreg_ssaice);
+              scream::bfbhash::hash("ma cos pade_sizreg_asyice", c.pade_sizreg_asyice);
+              auto& o = k_dist_sw;
+              scream::bfbhash::hash("ma kds band_lims_wvn", o.band_lims_wvn);
+              scream::bfbhash::hash("ma kds press_ref    ", o.press_ref    );
+              scream::bfbhash::hash("ma kds press_ref_log", o.press_ref_log);
+              scream::bfbhash::hash("ma kds temp_ref     ", o.temp_ref     );
+              scream::bfbhash::hashwtf("ma kds vmr_ref      ", o.vmr_ref);
+              scream::bfbhash::hash("ma kds kmajor       ", o.kmajor       );
+              scream::bfbhash::hash("ma kds kminor_lower ", o.kminor_lower );
+              scream::bfbhash::hash("ma kds kminor_upper ", o.kminor_upper );
+              scream::bfbhash::hash("ma kds krayl        ", o.krayl        );
+              scream::bfbhash::hash("ma kds planck_frac  ", o.planck_frac  );
+              scream::bfbhash::hash("ma kds totplnk      ", o.totplnk      );
+              scream::bfbhash::hash("ma kds solar_src    ", o.solar_src    );
+            }
             OpticalProps2str clouds_sw = get_cloud_optics_sw(ncol, nlay, cloud_optics_sw, k_dist_sw, lwp, iwp, rel, rei);
             OpticalProps1scl clouds_lw = get_cloud_optics_lw(ncol, nlay, cloud_optics_lw, k_dist_lw, lwp, iwp, rel, rei);        
             clouds_sw.tau.deep_copy_to(cld_tau_sw_bnd);
             clouds_lw.tau.deep_copy_to(cld_tau_lw_bnd);
+            scream::bfbhash::hash("ma clouds_sw tau", clouds_sw.tau, ncol, nlay, nswbands);
+            scream::bfbhash::hash("ma clouds_lw tau", clouds_lw.tau, ncol, nlay, nlwbands);
 
             // Do subcolumn sampling to map bands -> gpoints based on cloud fraction and overlap assumption;
             // This implements the Monte Carlo Independing Column Approximation by mapping only a single 
             // subcolumn (cloud state) to each gpoint.
             auto nswgpts = k_dist_sw.get_ngpt();
             auto clouds_sw_gpt = get_subsampled_clouds(ncol, nlay, nswbands, nswgpts, clouds_sw, k_dist_sw, cldfrac, p_lay);
+            Kokkos::fence();
+            //amb diffs here
+            scream::bfbhash::hash("ma sw cd1 tau", clouds_sw_gpt.tau, ncol, nlay, nswgpts);
+            scream::bfbhash::hash("ma sw cd1 ssa", clouds_sw_gpt.ssa, ncol, nlay, nswgpts);
             // Longwave
             auto nlwgpts = k_dist_lw.get_ngpt();
             auto clouds_lw_gpt = get_subsampled_clouds(ncol, nlay, nlwbands, nlwgpts, clouds_lw, k_dist_lw, cldfrac, p_lay);
+            Kokkos::fence();
+            scream::bfbhash::hash("ma lw cd1 tau", clouds_lw_gpt.tau, ncol, nlay, nlwgpts);
 
             // Copy cloud properties to outputs (is this needed, or can we just use pointers?)
             // Alternatively, just compute and output a subcolumn cloud mask
@@ -741,6 +871,10 @@ namespace scream {
                 aerosol_day.ssa(iday,ilay,ibnd) = aerosol.ssa(dayIndices(iday),ilay,ibnd);
                 aerosol_day.g  (iday,ilay,ibnd) = aerosol.g  (dayIndices(iday),ilay,ibnd);
             });
+            Kokkos::fence();
+            scream::bfbhash::hash("sw ad1 tau", aerosol_day.tau, nday, nlay, nbnd);
+            scream::bfbhash::hash("sw ad1 ssa", aerosol_day.ssa, nday, nlay, nbnd);
+            scream::bfbhash::hash("sw ad1 g", aerosol_day.g, nday, nlay, nbnd);
 
             // Subset cloud optics
             // TODO: nbnd -> ngpt once we pass sub-sampled cloud state
@@ -752,6 +886,10 @@ namespace scream {
                 clouds_day.ssa(iday,ilay,igpt) = clouds.ssa(dayIndices(iday),ilay,igpt);
                 clouds_day.g  (iday,ilay,igpt) = clouds.g  (dayIndices(iday),ilay,igpt);
             });
+            Kokkos::fence();
+            scream::bfbhash::hash("sw cd1 tau", clouds_day.tau, nday, nlay, nbnd);
+            scream::bfbhash::hash("sw cd1 ssa", clouds_day.ssa, nday, nlay, nbnd);
+            scream::bfbhash::hash("sw cd1 g", clouds_day.g, nday, nlay, nbnd);
 
             // RRTMGP assumes surface albedos have a screwy dimension ordering
             // for some strange reason, so we need to transpose these; also do
@@ -762,6 +900,9 @@ namespace scream {
                 sfc_alb_dir_T(ibnd,icol) = sfc_alb_dir(dayIndices(icol),ibnd);
                 sfc_alb_dif_T(ibnd,icol) = sfc_alb_dif(dayIndices(icol),ibnd);
             });
+            Kokkos::fence();
+            scream::bfbhash::hash("sw sfc_alb_dir_T", sfc_alb_dir_T, nbnd, nday);
+            scream::bfbhash::hash("sw sfc_alb_dif_T", sfc_alb_dif_T, nbnd, nday);
 
             // Temporaries we need for daytime-only fluxes
             auto flux_up_day = real2d("flux_up_day", nday, nlay+1);
@@ -804,10 +945,16 @@ namespace scream {
             parallel_for(SimpleBounds<2>(ngpt,nday), YAKL_LAMBDA(int igpt, int iday) {
                 toa_flux(iday,igpt) = tsi_scaling * toa_flux(iday,igpt);
             });
+            Kokkos::fence();
+            scream::bfbhash::hash("sw toa_flux", toa_flux, nday, ngpt);
 
             // Combine gas and aerosol optics
             aerosol_day.delta_scale();
             aerosol_day.increment(optics);
+            Kokkos::fence();
+            scream::bfbhash::hash("sw ad2 tau", aerosol_day.tau, nday, nlay, nbnd);
+            scream::bfbhash::hash("sw ad2 ssa", aerosol_day.ssa, nday, nlay, nbnd);
+            scream::bfbhash::hash("sw ad2 g", aerosol_day.g, nday, nlay, nbnd);
 
             // Compute clearsky (gas + aerosol) fluxes on daytime columns
             rte_sw(optics, top_at_1, mu0_day, toa_flux, sfc_alb_dir_T, sfc_alb_dif_T, fluxes_day);
@@ -818,16 +965,20 @@ namespace scream {
                 clrsky_flux_dn    (icol,ilev) = flux_dn_day    (iday,ilev);
                 clrsky_flux_dn_dir(icol,ilev) = flux_dn_dir_day(iday,ilev);
             });
-
-            scream::bfbhash::hash("lw clrsky_flux_up", clrsky_flux_up, ncol, nlay+1);
-            scream::bfbhash::hash("lw clrsky_flux_dn", clrsky_flux_dn, ncol, nlay+1);
-            scream::bfbhash::hash("lw clrsky_flux_dn_dir", clrsky_flux_dn_dir, ncol, nlay+1);
+            Kokkos::fence();
+            scream::bfbhash::hash("sw clrsky_flux_up", clrsky_flux_up, ncol, nlay+1);
+            scream::bfbhash::hash("sw clrsky_flux_dn", clrsky_flux_dn, ncol, nlay+1);
+            scream::bfbhash::hash("sw clrsky_flux_dn_dir", clrsky_flux_dn_dir, ncol, nlay+1);
 
             // Now merge in cloud optics and do allsky calculations
 
             // Combine gas and cloud optics
             clouds_day.delta_scale();
             clouds_day.increment(optics);
+            Kokkos::fence();
+            scream::bfbhash::hash("sw cd2 tau", clouds_day.tau, nday, nlay, nbnd);
+            scream::bfbhash::hash("sw cd2 ssa", clouds_day.ssa, nday, nlay, nbnd);
+            scream::bfbhash::hash("sw cd2 g", clouds_day.g, nday, nlay, nbnd);
             // Compute fluxes on daytime columns
             rte_sw(optics, top_at_1, mu0_day, toa_flux, sfc_alb_dir_T, sfc_alb_dif_T, fluxes_day);
             // Expand daytime fluxes to all columns
@@ -837,12 +988,17 @@ namespace scream {
                 flux_dn    (icol,ilev) = flux_dn_day    (iday,ilev);
                 flux_dn_dir(icol,ilev) = flux_dn_dir_day(iday,ilev);
             });
+            Kokkos::fence();
+            scream::bfbhash::hash("sw flux_up", flux_up, ncol, nlay+1);
+            scream::bfbhash::hash("sw flux_dn", flux_dn, ncol, nlay+1);
+            scream::bfbhash::hash("sw flux_dn_dir", flux_dn_dir, ncol, nlay+1);
             parallel_for(SimpleBounds<3>(nbnd,nlay+1,nday), YAKL_LAMBDA(int ibnd, int ilev, int iday) {
                 int icol = dayIndices(iday);
                 bnd_flux_up    (icol,ilev,ibnd) = bnd_flux_up_day    (iday,ilev,ibnd);
                 bnd_flux_dn    (icol,ilev,ibnd) = bnd_flux_dn_day    (iday,ilev,ibnd);
                 bnd_flux_dn_dir(icol,ilev,ibnd) = bnd_flux_dn_dir_day(iday,ilev,ibnd);
             });
+            Kokkos::fence();
             scream::bfbhash::hash("sw bnd_flux_up", bnd_flux_up, ncol, nlay+1, nbnd);
             scream::bfbhash::hash("sw bnd_flux_dn", bnd_flux_dn, ncol, nlay+1, nbnd);
             scream::bfbhash::hash("sw bnd_flux_dn_dir", bnd_flux_dn_dir, ncol, nlay+1, nbnd);
