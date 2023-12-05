@@ -16,15 +16,6 @@ namespace bfbhash {
 
 using ExeSpace = KokkosTypes<DefaultDevice>::ExeSpace;
 
-static HashType reduce (const char* label, const HashType accum) {
-  HashType gaccum = 0;
-  all_reduce_HashType(MPI_COMM_WORLD, &accum, &gaccum, 1);
-  int pid;
-  MPI_Comm_rank(MPI_COMM_WORLD, &pid);
-  if (pid == 0) printf("amb> %35s %16lx\n", label, gaccum);
-  return gaccum;  
-}
-
 static HashType hash (const char* label, const Field::view_dev_t<const Real*>& a, const int m) {
   HashType accum = 0;
   Kokkos::parallel_reduce(
@@ -795,6 +786,7 @@ void RRTMGPRadiation::run_impl (const double dt) {
             });
           });
         }
+        scream::bfbhash::hash(name.c_str(), d_vmr, m_ncol, m_nlay);
 
         // Copy to YAKL
         const auto policy = ekat::ExeSpaceUtils<ExeSpace>::get_default_team_policy(ncol, m_nlay);

@@ -9,150 +9,6 @@
 #include "cpp/rte/mo_rte_lw.h"
 #include "physics/share/physics_constants.hpp"
 #include "ekat/util/ekat_math_utils.hpp"
-#include "share/util/scream_bfbhash.hpp"
-
-using yakl::intrinsics::size;
-
-namespace scream {
-namespace bfbhash {
-
-using ExeSpace = KokkosTypes<DefaultDevice>::ExeSpace;
-
-static HashType reduce (const char* label, const HashType accum) {
-  HashType gaccum = 0;
-  all_reduce_HashType(MPI_COMM_WORLD, &accum, &gaccum, 1);
-  int pid;
-  MPI_Comm_rank(MPI_COMM_WORLD, &pid);
-  if (pid == 0) printf("amb> %35s %16lx\n", label, gaccum);
-  return gaccum;  
-}
-
-static HashType hash (const char* label, const real1d& a, const int m) {
-  if ( ! yakl::intrinsics::allocated(a)) return 0;
-  HashType accum = 0;
-  Kokkos::parallel_reduce(
-    Kokkos::RangePolicy<ExeSpace>(0, m),
-    KOKKOS_LAMBDA(const int idx, HashType& accum) {
-      const int i = idx;
-      bfbhash::hash(a(i+1), accum);
-    }, bfbhash::HashReducer<>(accum));
-  Kokkos::fence();
-  return reduce(label, accum);
-}
-
-static HashType hash (const char* label, const real2d& a, const int m, const int n) {
-  if ( ! yakl::intrinsics::allocated(a)) return 0;
-  HashType accum = 0;
-  Kokkos::parallel_reduce(
-    Kokkos::RangePolicy<ExeSpace>(0, m*n),
-    KOKKOS_LAMBDA(const int idx, HashType& accum) {
-      const int i = idx / n;
-      const int j = idx % n;
-      bfbhash::hash(a(i+1,j+1), accum);
-    }, bfbhash::HashReducer<>(accum));
-  Kokkos::fence();
-  return reduce(label, accum);
-}
-
-static HashType hash (const char* label, const real3d& a, const int m, const int n, const int o) {
-  if ( ! yakl::intrinsics::allocated(a)) return 0;
-  HashType accum = 0;
-  Kokkos::parallel_reduce(
-    Kokkos::RangePolicy<ExeSpace>(0, m*n*o),
-    KOKKOS_LAMBDA(const int idx, HashType& accum) {
-      const int i = idx / (n*o);
-      const int j = (idx / o) % n;
-      const int k = idx % o;
-      bfbhash::hash(a(i+1,j+1,k+1), accum);
-    }, bfbhash::HashReducer<>(accum));
-  Kokkos::fence();
-  return reduce(label, accum);
-}
-
-static HashType hash (const char* label, const real1d& a) {
-  if ( ! yakl::intrinsics::allocated(a)) return 0;
-  const auto m = size(a,1);
-  HashType accum = 0;
-  Kokkos::parallel_reduce(
-    Kokkos::RangePolicy<ExeSpace>(0, m),
-    KOKKOS_LAMBDA(const int idx, HashType& accum) {
-      const int i = idx;
-      bfbhash::hash(a(i+1), accum);
-    }, bfbhash::HashReducer<>(accum));
-  Kokkos::fence();
-  return reduce(label, accum);
-}
-
-static HashType hash (const char* label, const real2d& a) {
-  if ( ! yakl::intrinsics::allocated(a)) return 0;
-  const auto m = size(a,1);
-  const auto n = size(a,2);
-  HashType accum = 0;
-  Kokkos::parallel_reduce(
-    Kokkos::RangePolicy<ExeSpace>(0, m*n),
-    KOKKOS_LAMBDA(const int idx, HashType& accum) {
-      const int i = idx / n;
-      const int j = idx % n;
-      bfbhash::hash(a(i+1,j+1), accum);
-    }, bfbhash::HashReducer<>(accum));
-  Kokkos::fence();
-  return reduce(label, accum);
-}
-
-static HashType hash (const char* label, const real3d& a) {
-  if ( ! yakl::intrinsics::allocated(a)) return 0;
-  const auto m = size(a,1);
-  const auto n = size(a,2);
-  const auto o = size(a,3);
-  HashType accum = 0;
-  Kokkos::parallel_reduce(
-    Kokkos::RangePolicy<ExeSpace>(0, m*n*o),
-    KOKKOS_LAMBDA(const int idx, HashType& accum) {
-      const int i = idx / (n*o);
-      const int j = (idx / o) % n;
-      const int k = idx % o;
-      bfbhash::hash(a(i+1,j+1,k+1), accum);
-    }, bfbhash::HashReducer<>(accum));
-  Kokkos::fence();
-  return reduce(label, accum);
-}
-
-static HashType hashwtf (const char* label, const real3d& a) {
-  if ( ! yakl::intrinsics::allocated(a)) return 0;
-  const auto n = a.size();
-  HashType accum = 0;
-  const auto data = a.data();
-  Kokkos::parallel_reduce(
-    Kokkos::RangePolicy<ExeSpace>(0, n),
-    KOKKOS_LAMBDA(const int idx, HashType& accum) {
-      bfbhash::hash(data[idx], accum);
-    }, bfbhash::HashReducer<>(accum));
-  Kokkos::fence();
-  return reduce(label, accum);
-}
-
-static HashType hash (const char* label, const real4d& a) {
-  if ( ! yakl::intrinsics::allocated(a)) return 0;
-  const auto m = size(a,1);
-  const auto n = size(a,2);
-  const auto o = size(a,3);
-  const auto p = size(a,4);
-  HashType accum = 0;
-  Kokkos::parallel_reduce(
-    Kokkos::RangePolicy<ExeSpace>(0, m*n*o*p),
-    KOKKOS_LAMBDA(const int idx, HashType& accum) {
-      const int i = idx / (n*o*p);
-      const int j = (idx / (o*p)) % n;
-      const int k = (idx / p) % o;
-      const int l = idx % p;
-      bfbhash::hash(a(i+1,j+1,k+1,l+1), accum);
-    }, bfbhash::HashReducer<>(accum));
-  Kokkos::fence();
-  return reduce(label, accum);
-}
-
-} // namespace bfbhash
-} // namespace scream
 
 namespace scream {
     void yakl_init ()
@@ -453,6 +309,19 @@ namespace scream {
             // Convert cloud physical properties to optical properties for input to RRTMGP
             {
               auto& c = cloud_optics_sw;
+              scream::bfbhash::hashno("ma cos band2gpt", c.band2gpt);
+              scream::bfbhash::hashno("ma cos gpt2band", c.gpt2band);
+              scream::bfbhash::hashno("ma cos band_lims_wvn", c.band_lims_wvn);
+              scream::bfbhash::hashscal("ma cos ngpt", c.ngpt);
+              scream::bfbhash::hashscal("ma cos icergh       ", c.icergh       ); // diffs but is set in get_cloud_optics_sw
+              scream::bfbhash::hashscal("ma cos radliq_lwr   ", c.radliq_lwr   );
+              scream::bfbhash::hashscal("ma cos radliq_upr   ", c.radliq_upr   );
+              scream::bfbhash::hashscal("ma cos radice_lwr   ", c.radice_lwr   );
+              scream::bfbhash::hashscal("ma cos radice_upr   ", c.radice_upr   );
+              scream::bfbhash::hashscal("ma cos liq_nsteps   ", c.liq_nsteps   );
+              scream::bfbhash::hashscal("ma cos ice_nsteps   ", c.ice_nsteps   );
+              scream::bfbhash::hashscal("ma cos liq_step_size", c.liq_step_size);
+              scream::bfbhash::hashscal("ma cos ice_step_size", c.ice_step_size);
               scream::bfbhash::hash("ma cos lut_extliq", c.        lut_extliq        );
               scream::bfbhash::hash("ma cos lut_ssaliq", c.        lut_ssaliq        );
               scream::bfbhash::hash("ma cos lut_asyliq", c.        lut_asyliq        );
@@ -472,23 +341,62 @@ namespace scream {
               scream::bfbhash::hash("ma cos pade_sizreg_ssaice", c.pade_sizreg_ssaice);
               scream::bfbhash::hash("ma cos pade_sizreg_asyice", c.pade_sizreg_asyice);
               auto& o = k_dist_sw;
+              scream::bfbhash::hashno("ma kds band2gpt", o.band2gpt);
+              scream::bfbhash::hashno("ma kds gpt2band", o.gpt2band);
+              scream::bfbhash::hashno("ma kds band_lims_wvn", o.band_lims_wvn);
+              scream::bfbhash::hashscal("ma kds ngpt", o.ngpt);
+              scream::bfbhash::hashscal("ma kds press_ref_min        ", o.press_ref_min      );
+              scream::bfbhash::hashscal("ma kds press_ref_max       ", o.press_ref_max       );
+              scream::bfbhash::hashscal("ma kds temp_ref_min        ", o.temp_ref_min        );
+              scream::bfbhash::hashscal("ma kds temp_ref_max        ", o.temp_ref_max        );
+              scream::bfbhash::hashscal("ma kds press_ref_log_delta;", o.press_ref_log_delta );
+              scream::bfbhash::hashscal("ma kds temp_ref_delta      ", o.temp_ref_delta      );
+              scream::bfbhash::hashscal("ma kds press_ref_trop_log  ", o.press_ref_trop_log  );
+              scream::bfbhash::hashscal("ma kds max_gpt_diff_lower", o.max_gpt_diff_lower);
+              scream::bfbhash::hashscal("ma kds max_gpt_diff_upper", o.max_gpt_diff_upper);
+              scream::bfbhash::hashno("ma kds press_ref    ", o.press_ref);
+              scream::bfbhash::hashno("ma kds press_ref_log", o.press_ref_log);
+              scream::bfbhash::hashno("ma kds temp_ref     ", o.temp_ref);
+              scream::bfbhash::hashno("ma kds flavor", o.flavor);
+              scream::bfbhash::hashno("ma kds gpoint_flavor", o.gpoint_flavor);
+              scream::bfbhash::hashno("ma kds kmajor", o.kmajor);
+              scream::bfbhash::hashno("ma kds minor_limits_gpt_lower", o.minor_limits_gpt_lower);
+              scream::bfbhash::hashno("ma kds minor_limits_gpt_upper", o.minor_limits_gpt_upper);
+              scream::bfbhash::hashno("ma kds minor_scales_with_density_lower", o.minor_scales_with_density_lower);
+              scream::bfbhash::hashno("ma kds minor_scales_with_density_upper", o.minor_scales_with_density_upper);
+              scream::bfbhash::hashno("ma kds scale_by_complement_lower", o.scale_by_complement_lower);
+              scream::bfbhash::hashno("ma kds scale_by_complement_upper", o.scale_by_complement_upper);
+              scream::bfbhash::hashno("ma kds idx_minor_lower", o.idx_minor_lower);
+              scream::bfbhash::hashno("ma kds idx_minor_upper", o.idx_minor_upper);
+              scream::bfbhash::hashno("ma kds idx_minor_scaling_lower", o.idx_minor_scaling_lower);
+              scream::bfbhash::hashno("ma kds idx_minor_scaling_upper", o.idx_minor_scaling_upper);
+              scream::bfbhash::hashno("ma kds kminor_start_lower", o.kminor_start_lower);
+              scream::bfbhash::hashno("ma kds kminor_start_upper", o.kminor_start_upper);
+              scream::bfbhash::hashno("ma kds is_key", o.is_key);
               scream::bfbhash::hash("ma kds band_lims_wvn", o.band_lims_wvn);
               scream::bfbhash::hash("ma kds press_ref    ", o.press_ref    );
               scream::bfbhash::hash("ma kds press_ref_log", o.press_ref_log);
               scream::bfbhash::hash("ma kds temp_ref     ", o.temp_ref     );
-              scream::bfbhash::hashwtf("ma kds vmr_ref      ", o.vmr_ref);
+              scream::bfbhash::hashno("ma kds vmr_ref      ", o.vmr_ref);
               scream::bfbhash::hash("ma kds kmajor       ", o.kmajor       );
               scream::bfbhash::hash("ma kds kminor_lower ", o.kminor_lower );
               scream::bfbhash::hash("ma kds kminor_upper ", o.kminor_upper );
               scream::bfbhash::hash("ma kds krayl        ", o.krayl        );
               scream::bfbhash::hash("ma kds planck_frac  ", o.planck_frac  );
               scream::bfbhash::hash("ma kds totplnk      ", o.totplnk      );
+              scream::bfbhash::hashscal("ma kds totplnk_delta", o.totplnk_delta);
               scream::bfbhash::hash("ma kds solar_src    ", o.solar_src    );
             }
+            scream::bfbhash::hashno("ma lwp", lwp);
+            scream::bfbhash::hashno("ma iwp", iwp);
+            scream::bfbhash::hashno("ma rel", rel);
+            scream::bfbhash::hashno("ma rei", rei);
             OpticalProps2str clouds_sw = get_cloud_optics_sw(ncol, nlay, cloud_optics_sw, k_dist_sw, lwp, iwp, rel, rei);
             OpticalProps1scl clouds_lw = get_cloud_optics_lw(ncol, nlay, cloud_optics_lw, k_dist_lw, lwp, iwp, rel, rei);        
             clouds_sw.tau.deep_copy_to(cld_tau_sw_bnd);
             clouds_lw.tau.deep_copy_to(cld_tau_lw_bnd);
+            scream::bfbhash::hash("ma clouds_sw   g", clouds_sw.g  , ncol, nlay, nswbands);
+            scream::bfbhash::hash("ma clouds_sw ssa", clouds_sw.ssa, ncol, nlay, nswbands);
             scream::bfbhash::hash("ma clouds_sw tau", clouds_sw.tau, ncol, nlay, nswbands);
             scream::bfbhash::hash("ma clouds_lw tau", clouds_lw.tau, ncol, nlay, nlwbands);
 
@@ -729,6 +637,8 @@ namespace scream {
             auto rei_limited = real2d("rei_limited", ncol, nlay);
             limit_to_bounds(rel, cloud_optics.radliq_lwr, cloud_optics.radliq_upr, rel_limited);
             limit_to_bounds(rei, cloud_optics.radice_lwr, cloud_optics.radice_upr, rei_limited);
+            scream::bfbhash::hashno("gcos rel_limited", rel_limited);
+            scream::bfbhash::hashno("gcos rei_limited", rei_limited);
 
             // Calculate cloud optics
             cloud_optics.cloud_optics(ncol, nlay, lwp, iwp, rel_limited, rei_limited, clouds);
@@ -756,6 +666,8 @@ namespace scream {
             auto rei_limited = real2d("rei_limited", ncol, nlay);
             limit_to_bounds(rel, cloud_optics.radliq_lwr, cloud_optics.radliq_upr, rel_limited);
             limit_to_bounds(rei, cloud_optics.radice_lwr, cloud_optics.radice_upr, rei_limited);
+            scream::bfbhash::hashno("gcol rel_limited", rel_limited);
+            scream::bfbhash::hashno("gcol rei_limited", rei_limited);
 
             // Calculate cloud optics
             cloud_optics.cloud_optics(ncol, nlay, lwp, iwp, rel_limited, rei_limited, clouds);

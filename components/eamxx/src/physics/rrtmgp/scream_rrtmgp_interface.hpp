@@ -1,15 +1,167 @@
 #ifndef SCREAM_RRTMGP_INTERFACE_HPP
 #define SCREAM_RRTMGP_INTERFACE_HPP
 
+#include "cpp/rrtmgp_const.h"
+#include "physics/share/physics_constants.hpp"
+#include "ekat/mpi/ekat_comm.hpp"
+#include "ekat/logging/ekat_logger.hpp"
+#include "share/util/scream_bfbhash.hpp"
+
+using yakl::intrinsics::size;
+
+namespace scream {
+namespace bfbhash {
+
+#define AMB_HASH
+
+using ExeSpace = KokkosTypes<DefaultDevice>::ExeSpace;
+
+static HashType reduce (const char* label, const HashType accum) {
+  HashType gaccum = 0;
+  all_reduce_HashType(MPI_COMM_WORLD, &accum, &gaccum, 1);
+  int pid;
+  MPI_Comm_rank(MPI_COMM_WORLD, &pid);
+  if (pid == 0) printf("amb> %35s %16lx\n", label, gaccum);
+  return gaccum;  
+}
+
+static HashType hash (const char* label, const real1d& a, const int m) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      const int i = idx;
+      bfbhash::hash(a(i+1), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+static HashType hash (const char* label, const real2d& a, const int m, const int n) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m*n),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      const int i = idx / n;
+      const int j = idx % n;
+      bfbhash::hash(a(i+1,j+1), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+static HashType hash (const char* label, const real3d& a, const int m, const int n, const int o) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m*n*o),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      const int i = idx / (n*o);
+      const int j = (idx / o) % n;
+      const int k = idx % o;
+      bfbhash::hash(a(i+1,j+1,k+1), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+static HashType hash (const char* label, const real1d& a) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  const auto m = size(a,1);
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      const int i = idx;
+      bfbhash::hash(a(i+1), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+static HashType hash (const char* label, const real2d& a) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  const auto m = size(a,1);
+  const auto n = size(a,2);
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m*n),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      const int i = idx / n;
+      const int j = idx % n;
+      bfbhash::hash(a(i+1,j+1), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+static HashType hash (const char* label, const real3d& a) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  const auto m = size(a,1);
+  const auto n = size(a,2);
+  const auto o = size(a,3);
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m*n*o),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      const int i = idx / (n*o);
+      const int j = (idx / o) % n;
+      const int k = idx % o;
+      bfbhash::hash(a(i+1,j+1,k+1), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+static HashType hash (const char* label, const real4d& a) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  const auto m = size(a,1);
+  const auto n = size(a,2);
+  const auto o = size(a,3);
+  const auto p = size(a,4);
+  HashType accum = 0;
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, m*n*o*p),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      const int i = idx / (n*o*p);
+      const int j = (idx / (o*p)) % n;
+      const int k = (idx / p) % o;
+      const int l = idx % p;
+      bfbhash::hash(a(i+1,j+1,k+1,l+1), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+template <typename A>
+static HashType hashno (const char* label, const A& a) {
+  if ( ! yakl::intrinsics::allocated(a)) return 0;
+  const auto n = a.size();
+  HashType accum = 0;
+  const auto data = a.data();
+  Kokkos::parallel_reduce(
+    Kokkos::RangePolicy<ExeSpace>(0, n),
+    KOKKOS_LAMBDA(const int idx, HashType& accum) {
+      bfbhash::hash(double(data[idx]), accum);
+    }, bfbhash::HashReducer<>(accum));
+  Kokkos::fence();
+  return reduce(label, accum);
+}
+
+static HashType hashscal (const char* label, const double a) {
+  HashType accum = 0;
+  bfbhash::hash(a, accum);
+  return reduce(label, accum);
+}
+
+} // namespace bfbhash
+} // namespace scream
+
 #include "cpp/rrtmgp/mo_gas_optics_rrtmgp.h"
 #include "cpp/extensions/cloud_optics/mo_cloud_optics.h"
 #include "cpp/extensions/fluxes_byband/mo_fluxes_byband.h"
-#include "cpp/rrtmgp_const.h"
-
-#include "physics/share/physics_constants.hpp"
-
-#include "ekat/mpi/ekat_comm.hpp"
-#include "ekat/logging/ekat_logger.hpp"
 
 namespace scream {
   void yakl_init ();
