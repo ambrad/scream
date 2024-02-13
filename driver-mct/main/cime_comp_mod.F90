@@ -2762,7 +2762,7 @@ contains
        ! Does the driver need to pause?
        drv_pause = pause_alarm .and. seq_timemgr_pause_component_active(drv_index)
 
-       call rpointer_manage()
+       call rpointer_manage(.false.)
 
        if (glc_prognostic .or. do_hist_l2x1yrg) then
           ! Is it time to average fields to pass to glc?
@@ -3602,7 +3602,7 @@ contains
     call component_final(EClock_l, lnd, lnd_final)
     call component_final(EClock_a, atm, atm_final)
 
-    call rpointer_manage()
+    call rpointer_manage(.true.)
 
     !------------------------------------------------------------------------
     ! End the run cleanly
@@ -5203,42 +5203,6 @@ contains
 !
 !----------------------------------------------------------------------------------
 
-#define MANUAL_COPY
-  function manual_copy(src, dst) result(out)
-    character(*), intent(in) :: src, dst
-    character(1024) :: buf
-    character(16) :: status
-    integer :: soi, doi, stat, out
-    logical :: file_exists
-    out = 0
-    open(newunit=soi, file=trim(src), status='old', action='read', iostat=stat)
-    if (stat /= 0) then
-       out = -3
-       return
-    end if
-    inquire(file=trim(dst), exist=file_exists)
-    ! Probably not needed; always using 'replace' I think should work.
-    if (file_exists) then
-       status = 'replace'
-    else
-       status = 'new'
-    end if
-    open(newunit=doi, file=trim(dst), status=trim(status), action='write', iostat=stat)
-    if (stat /= 0) then
-       close(soi)
-       out = -2
-       return
-    end if
-    do while (.true.)
-       read(soi, '(a1024)', iostat=stat) buf
-       if (stat /= 0) exit
-       write(doi, '(a)', iostat=stat) trim(buf)
-       if (stat /= 0) out = -1
-    end do
-    close(soi)
-    close(doi)
-  end function manual_copy
-
   subroutine rpointer_prepare_restart()
     ! Prepare to restart. If .prev file are present, something went wrong in the
     ! previous run's final restart write. Use the .prev files instead of the
@@ -5248,10 +5212,8 @@ contains
     ! This routine is called independently of the ones after it; in particular,
     ! it does not require the manager to be initialized.
 
-    use shr_file_mod, only: shr_file_put
-
     integer :: i, n, idxlist(rpointer_ncomp), sleep_len, rcode, unit
-    logical :: file_exists, ok, same
+    logical :: file_exists, ok, same, complete
 
     ! Each rank checks if .prev files exist.
     n = 0
@@ -5267,22 +5229,43 @@ contains
     if (n == 0) return
 
     ! .prev files exist.
+
+    ! Check that there is not an rpointer.x file with no corresponding
+    ! rpointer.x.prev file. If there is, then we assume the .prev files are
+    ! incomplete and error out. Note the presence of at least one
+    ! rpointer.x.prev file means something went wrong in the previous run, so
+    ! it's best to let the user sort things out.
     if (iamroot_CPLID) then
-       ! The root rank copies the .prev files to regular files.
+       complete = .true.
+       do i = 1, rpointer_ncomp
+          inquire(file='rpointer.'//rpointer_suffixes(i), &
+               exist=file_exists)
+          if (file_exists) then
+             inquire(file='rpointer.'//rpointer_suffixes(i)//'.prev', &
+                  exist=file_exists)
+             if (.not. file_exists) then
+                complete = .false.
+                write(logunit,'(3a)') 'rpointer> ERROR: ', rpointer_suffixes(i), &
+                     ' has an rpointer.x file with no corresponding rpointer.x.prev file'
+             end if
+          end if
+       end do
+       if (.not. complete) then
+          call shr_sys_abort('rpointer_manage: rpointer.x.prev files exist but rpointer.y &
+               &has no corresponding rpointer.y.prev file.')
+       end if
+    end if
+
+    ! The root rank copies the .prev files to regular files.
+    if (iamroot_CPLID) then
        do i = 1, n
-#ifdef MANUAL_COPY
-          rcode = manual_copy( &
+          rcode = copy_and_trim_rpointer_file( &
                'rpointer.'//rpointer_suffixes(idxlist(i))//'.prev', &
                'rpointer.'//rpointer_suffixes(idxlist(i)))
-          if (rcode /= 0) write(logunit,*) 'rpointer> manual_copy x.prev->x',rcode
-#else
-          call shr_file_put(rcode, &
-               'rpointer.'//rpointer_suffixes(idxlist(i))//'.prev', &
-               'rpointer.'//rpointer_suffixes(idxlist(i)), &
-               remove=.false., async=.false.)
-#endif
+          if (rcode /= 0) write(logunit,*) 'rpointer> copy x.prev->x', rcode
        end do
     end if
+
     ! Read-after-write consistency generally does not hold, so each rank
     ! waits until it does, as follows: Check if rpointer.x is the same as
     ! rpointer.x.prev. If not, then sleep and loop to try again. The sleep
@@ -5311,8 +5294,9 @@ contains
     end if
     ! This rank is consistent. Wait for everyone else.
     call mpi_barrier(mpicom_GLOID, rcode)
+
+    ! After the barrier exits, the root rank can delete the .prev files.
     if (iamroot_CPLID) then
-       ! After the barrier exits, the root rank can delete the .prev files.
        unit = shr_file_getUnit()
        do i = 1, n
           open(file='rpointer.'//rpointer_suffixes(i)//'.prev', &
@@ -5460,20 +5444,20 @@ contains
 #endif
   end subroutine rpointer_init_manager
 
-  subroutine rpointer_manage()
+  subroutine rpointer_manage(force_remove)
     ! Call this routine at certain places in the driver loop. This subroutine
     ! monitors the restart alarms of all the active components and carries out
     ! the steps required for rpointer file consistency based on state.
 
-    use shr_file_mod, only: shr_file_put
-
+    logical, intent(in) :: force_remove ! force removal of .prev files in this call
+    
     integer :: i, n, rcode, unit
-    logical :: no_previous_rings, file_exists
+    logical :: previous_rings, file_exists
     character(32) :: buf
 
     if (.not. iamroot_CPLID) return
 
-    if (rpointer_mgr%remove_prev_in_next_call) then
+    if (rpointer_mgr%remove_prev_in_next_call .or. force_remove) then
        ! Now we've been told the restart writes really are all valid. Remove the
        ! .prev files.
        unit = shr_file_getUnit()
@@ -5493,9 +5477,9 @@ contains
        return
     end if
 
-    no_previous_rings = .true.
+    previous_rings = .false.
     do i = 1, rpointer_ncomp
-       if (rpointer_mgr%rang(i)) no_previous_rings = .false.
+       if (rpointer_mgr%rang(i)) previous_rings = .true.
     end do
 
     n = 0
@@ -5521,9 +5505,9 @@ contains
        end do
     end if
 
-    if (n == rpointer_mgr%npresent) then
+    if (previous_rings .and. n == rpointer_mgr%npresent) then
        ! All restart timers have rung. Get ready to remove the .prev files. We
-       ! don't want to do it in this phase_monitor call, however. Because of
+       ! don't want to do it in this rpointer_manage call, however. Because of
        ! things like partial steps in the atmosphere model (initiated from
        ! cime_final rather than cime_run), we can't yet be sure all
        ! restart-related writes at the level of history tapes are complete. Set
@@ -5532,7 +5516,7 @@ contains
        if (rpointer_mgr%verbose) &
             write(logunit,*) 'rpointer> set remove_prev_in_next_call=true'
        return
-    else if (no_previous_rings) then
+    else if (.not. previous_rings) then
        if (n == 0) then
           ! Nothing happened.
           return
@@ -5545,15 +5529,10 @@ contains
                 buf = 'rpointer.'//rpointer_suffixes(i)
                 inquire(file=trim(buf), exist=file_exists)
                 if (file_exists) then
-#ifdef MANUAL_COPY
-                   rcode = manual_copy(trim(buf), &
+                   rcode = copy_and_trim_rpointer_file(trim(buf), &
                         'rpointer.'//rpointer_suffixes(i)//'.prev')
-                   if (rcode /= 0 .and. rpointer_mgr%verbose) write(logunit,*) 'rpointer> manual_copy x->x.prev',rcode
-#else
-                   call shr_file_put(rcode, trim(buf), &
-                        'rpointer.'//rpointer_suffixes(i)//'.prev', &
-                        remove=.false., async=.false.)
-#endif
+                   if (rcode /= 0 .and. rpointer_mgr%verbose) &
+                        write(logunit,*) 'rpointer> copy x->x.prev',rcode
                    if (rpointer_mgr%verbose) then
                       if (rcode == 0) then
                          write(logunit,*) 'rpointer> copied: ', rpointer_suffixes(i)
@@ -5574,5 +5553,48 @@ contains
     ! anything more yet.
 
   end subroutine rpointer_manage
+
+  function copy_and_trim_rpointer_file(src, dst) result(out)
+    ! Copy rpointer file src to dst, with the caveat that the lines are
+    ! trimmed. We found that shr_file_put would result in mysterious errors
+    ! preventing copying, whereas this manual approach has yet to exhibit this
+    ! problem.
+
+    character(*), intent(in) :: src, dst
+
+    character(1024) :: buf
+    character(16) :: status
+    integer :: soi, doi, stat, out
+    logical :: file_exists
+
+    out = 0
+    open(newunit=soi, file=trim(src), status='old', action='read', iostat=stat)
+    if (stat /= 0) then
+       out = -3
+       return
+    end if
+    inquire(file=trim(dst), exist=file_exists)
+    ! Probably not needed; always using 'replace' I think should work.
+    if (file_exists) then
+       status = 'replace'
+    else
+       status = 'new'
+    end if
+    open(newunit=doi, file=trim(dst), status=trim(status), action='write', iostat=stat)
+    if (stat /= 0) then
+       close(soi)
+       out = -2
+       return
+    end if
+    do while (.true.)
+       read(soi, '(a1024)', iostat=stat) buf
+       if (stat /= 0) exit
+       write(doi, '(a)', iostat=stat) trim(buf)
+       if (stat /= 0) out = -1
+    end do
+    close(soi)
+    close(doi)
+
+  end function copy_and_trim_rpointer_file
 
 end module cime_comp_mod
