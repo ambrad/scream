@@ -234,31 +234,44 @@ KOKKOS_FUNCTION static void calc_vertically_lagrangian_levels (
       };
       cti::loop_ijk<cti::num_lev_pack>(kv, f);
     }
+    kv.team_barrier();
 
     sphere_ops.divergence_sphere(kv, vdp, divdp);
 
-    RNlevp edds(cti::pack2real(edd)), divdps(cti::pack2real(divdp));
-    const auto f = [&] (const int idx) {
-      const int i = idx / NP, j = idx % NP;
-      const auto r = [&] (const int k, Real& dps, const bool final) {
-        assert(k != 0 || dps == 0);
-        if (final) edds(i,j,k) = dps;
-        dps += divdps(i,j,k);
+    {
+      RNlevp edds(cti::pack2real(edd)), divdps(cti::pack2real(divdp));
+      const auto f1 = [&] (const int idx) {
+        const int i = idx / NP, j = idx % NP;
+        const auto r = [&] (const int k, Real& dps, const bool final) {
+          assert(k != 0 || dps == 0);
+          if (final) edds(i,j,k) = dps;
+          dps += divdps(i,j,k);
+        };
+        Dispatch<>::parallel_scan(kv.team, cti::num_phys_lev, r);
       };
-      Dispatch<>::parallel_scan(kv.team, cti::num_phys_lev, r);
-      const int kend = cti::num_phys_lev - 1;
-      const Real dps = edds(i,j,kend) + divdps(i,j,kend);
-      assert(hybrid_bi(0)[0] == 0);
-      const auto s = [&] (const int kp) {
-        edd(i,j,kp) = hybrid_bi(kp)*dps - edd(i,j,kp);
-        if (kp == 0) edd(i,j,kp)[0] = 0;
+      parallel_for(ttr, f1);
+      kv.team_barrier();
+      const auto f2 = [&] (const int idx) {
+        const int i = idx / NP, j = idx % NP;
+        const int kend = cti::num_phys_lev - 1;
+        const Real dps = edds(i,j,kend) + divdps(i,j,kend);
+        assert(hybrid_bi(0)[0] == 0);
+        const auto s = [&] (const int kp) {
+          edd(i,j,kp) = hybrid_bi(kp)*dps - edd(i,j,kp);
+          if (kp == 0) edd(i,j,kp)[0] = 0;
+        };
+        parallel_for(tvr, s);
       };
-      parallel_for(tvr, s);
-      assert(edds(i,j,0) == 0);
+      parallel_for(ttr, f2);
+      kv.team_barrier();
       const int bottom = cti::num_phys_lev;
-      edds(i,j,bottom) = 0;
-    };
-    parallel_for(ttr, f);
+      const auto f3 = [&] (const int idx) {
+        const int i = idx / NP, j = idx % NP;
+        Kokkos::single(Kokkos::PerThread(kv.team), [&] () { edds(i,j,bottom) = 0; });
+      };
+      parallel_for(ttr, f3);
+    }
+    kv.team_barrier();
   }
   
   // Use p0 as the reference coordinate system. p0 differs from p1 by B(eta)
@@ -269,16 +282,17 @@ KOKKOS_FUNCTION static void calc_vertically_lagrangian_levels (
   // its motion due to dps/dt.
   const auto& pref = wrk1a;
   calc_p(kv, ps0, hybrid_ai0, dp, pref);
-    
+
   // Gradient of eta_dot_dpdn = p_eta deta/dt at final time
   // w.r.t. horizontal sphere coords.
   const auto& grad = S2Nlev(wrk2.data());
   sphere_ops.gradient_sphere(kv, *eta_dot_dpdn[1], grad);
-  
+
   // Gradient of eta_dot_dpdn = p_eta deta/dt at final time w.r.t. p at initial
   // time.
   const auto& ptp0 = dprecon;
   approx_derivative(kv, pref, *eta_dot_dpdn[1], ptp0);
+  kv.team_barrier();
 
   {
     const auto& edd = *eta_dot_dpdn[0];
@@ -316,14 +330,16 @@ KOKKOS_FUNCTION static void calc_vertically_lagrangian_levels (
     if (static_cast<int>(cti::num_lev_pack) ==
         static_cast<int>(cti::max_num_lev_pack)) {
       // Re-zero eta_dot_dpdn at bottom.
+      kv.team_barrier();
       RNlevp edds(cti::pack2real(edd));
       const auto f = [&] (const int idx) {
         const int i = idx / NP, j = idx % NP;
         const int bottom = cti::num_phys_lev;
-        edds(i,j,bottom) = 0;
+        Kokkos::single(Kokkos::PerThread(kv.team), [&] () { edds(i,j,bottom) = 0; });
       };
       parallel_for(ttr, f);
     }
+    kv.team_barrier();
   }
 
   reconstruct_and_limit_dp(kv, dp3d, dt, dp_tol, *eta_dot_dpdn[0], dprecon);
@@ -457,7 +473,7 @@ void ComposeTransportImpl::calc_trajectory (const int np1, const Real dt) {
       const auto vstar = Homme::subview(m_vstar, ie);
       const auto vec_sphere2cart = Homme::subview(m_vec_sph2cart, ie);
       const auto sphere_cart = Homme::subview(m_sphere_cart, ie);
-      const auto dep_pts = Homme::subview(m_dep_pts, ie);
+      const auto dep_pts = m_dep_pts;
       const auto f = [&] (const int i, const int j, const int k) {
         // dp = p1 - dt v/scale_factor
         Scalar dp[3];
@@ -476,7 +492,7 @@ void ComposeTransportImpl::calc_trajectory (const int np1, const Real dt) {
           // No vec call for sqrt.
           const auto r = is_sphere ? std::sqrt(r2[s]) : 1;
           for (int d = 0; d < 3; ++d)
-            dep_pts(oss,i,j,d) = dp[d][s]/r;
+            dep_pts(ie,oss,i,j,d) = dp[d][s]/r;
         }
       };
       cti::loop_ijk<num_lev_pack>(kv, f);
