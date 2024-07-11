@@ -8,6 +8,7 @@
 #define HOMMEXX_ELEMENTS_DERIVED_STATE_HPP
 
 #include "Types.hpp"
+#include "utilities/Hash.hpp"
 
 namespace Homme {
 
@@ -38,6 +39,8 @@ public:
 
   KOKKOS_INLINE_FUNCTION
   int num_elems() const { return m_num_elems; }
+
+  HashType hash() const;
 
 private:
   int m_num_elems;

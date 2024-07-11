@@ -36,6 +36,20 @@ void hash (const int tl, const ExecViewManaged<Scalar*****>& v, int n4,
   hash(accum, accum_out);
 }
 
+void hash (const ExecViewManaged<Scalar****>& v, int n3,
+           HashType& accum_out) {
+  HashType accum;
+  Kokkos::parallel_reduce(
+    MDRangePolicy<ExecSpace, 4>(
+      {0, 0, 0, 0},
+      {v.extent_int(0), v.extent_int(1), v.extent_int(2), n3}),
+    KOKKOS_LAMBDA(int i0, int i1, int i2, int i3, HashType& accum) {
+      const auto* vcol = &v(i0,i1,i2,0)[0];
+      Homme::hash(vcol[i3], accum);
+    }, HashReducer<>(accum));
+  hash(accum, accum_out);
+}
+
 void hash (const ExecViewManaged<Scalar*****>& v, int n4,
            HashType& accum_out) {
   HashType accum;

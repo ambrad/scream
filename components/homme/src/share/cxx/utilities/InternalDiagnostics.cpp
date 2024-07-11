@@ -38,16 +38,19 @@ void print_global_state_hash (const std::string& label) {
   const auto& c = Context::singleton();
   const auto& es = c.get<ElementsState>();
   const auto& tr = c.get<Tracers>();
+  const auto& ds = c.get<ElementsDerivedState>();
   const auto& tl = c.get<TimeLevel>();
   const auto& comm = c.get<Comm>();
-  HashType accum[NUM_TIME_LEVELS + Q_NUM_TIME_LEVELS] = {0};
+  const int nacc = NUM_TIME_LEVELS + Q_NUM_TIME_LEVELS + 1;
+  HashType accum[nacc] = {0};
   hash(es.hash(tl.nm1), accum[0]);
   hash(es.hash(tl.n0 ), accum[1]);
   hash(es.hash(tl.np1), accum[2]);
   hash(tr.hash(tl.n0_qdp ), accum[3]);
   hash(tr.hash(tl.np1_qdp), accum[4]);
-  HashType gaccum[NUM_TIME_LEVELS + Q_NUM_TIME_LEVELS];
-  all_reduce_HashType(comm.mpi_comm(), accum, gaccum, 5);
+  hash(ds.hash(), accum[5]);
+  HashType gaccum[nacc];
+  all_reduce_HashType(comm.mpi_comm(), accum, gaccum, nacc);
   if (comm.root()) {
     for (int i = 0; i < NUM_TIME_LEVELS; ++i)
       fprintf(stderr, "hxxhash> %14d %1d %16lx (E %s)\n",
@@ -55,6 +58,10 @@ void print_global_state_hash (const std::string& label) {
     for (int i = 0; i < Q_NUM_TIME_LEVELS; ++i)
       fprintf(stderr, "hxxhash> %14d %1d %16lx (T %s)\n",
               tl.nstep, i, gaccum[NUM_TIME_LEVELS+i], label.c_str());
+    for (int i = 0; i < 1; ++i)
+      fprintf(stderr, "hxxhash> %14d %1d %16lx (D %s)\n",
+              tl.nstep, i, gaccum[NUM_TIME_LEVELS+Q_NUM_TIME_LEVELS+i],
+              label.c_str());
   }
 }
 

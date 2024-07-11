@@ -40,6 +40,7 @@ void hash(const int tl,                           // time level
           int n5,                                 // max index of final slot
           HashType& accum);                       // accumulate into input value
 void hash(const int tl, const ExecViewManaged<Scalar*****>& v, int n4, HashType& accum);
+void hash(const ExecViewManaged<Scalar**** >& v, int n3, HashType& accum);
 void hash(const ExecViewManaged<Scalar*****>& v, int n4, HashType& accum);
 void hash(const int tl, const ExecViewManaged<Real****>& v, HashType& accum);
 

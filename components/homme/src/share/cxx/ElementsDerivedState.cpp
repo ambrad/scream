@@ -109,4 +109,15 @@ void ElementsDerivedState::randomize(const int seed, const Real dp3d_min) {
   });
 }
 
+HashType ElementsDerivedState::hash () const {  
+  HashType accum = 0;
+  Homme::hash(    m_vn0, NUM_PHYSICAL_LEV, accum);
+  Homme::hash(  m_vstar, NUM_PHYSICAL_LEV, accum);
+  Homme::hash(m_omega_p, NUM_PHYSICAL_LEV, accum);
+  Homme::hash(     m_dp, NUM_PHYSICAL_LEV, accum);
+  Homme::hash(  m_divdp, NUM_PHYSICAL_LEV, accum);
+  Homme::hash(m_eta_dot_dpdn, NUM_INTERFACE_LEV, accum);
+  return accum;
+}
+
 } // namespace Homme
