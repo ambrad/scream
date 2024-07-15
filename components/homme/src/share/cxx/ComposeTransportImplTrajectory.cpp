@@ -131,7 +131,6 @@ reconstruct_and_limit_dp (const KernelVariables& kv, const CSNlev& dprefp, const
     };
     Kokkos::Real2 sums;
     Dispatch<>::parallel_reduce(kv.team, tvr, g1, sums);
-    kv.team_barrier();
     const Real nmass = sums.v[0];
     if (nmass == 0) return;
     // Compensate for clipping.

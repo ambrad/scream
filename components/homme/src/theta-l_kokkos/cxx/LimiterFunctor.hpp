@@ -31,7 +31,9 @@ struct LimiterFunctor {
 
   struct Buffers {
     static constexpr int num_3d_scalar_mid_buf = 1;
+    static constexpr int num_2d_real_buf = 1;
     ExecViewUnmanaged<Scalar*    [NP][NP][NUM_LEV]  >   buffer1;
+    ExecViewUnmanaged<Real*   [2][NP][NP]           >   realbuf;
   };
 
   int                 m_np1;
@@ -80,8 +82,10 @@ struct LimiterFunctor {
     const int nslots = m_tu.get_num_ws_slots();
 
     int num_scalar_mid_buf = Buffers::num_3d_scalar_mid_buf;
+    int num_real_buf = Buffers::num_2d_real_buf;
 
-    return num_scalar_mid_buf  *NP*NP*NUM_LEV  *VECTOR_SIZE*nslots ;
+    return (num_scalar_mid_buf  *NP*NP*NUM_LEV  *VECTOR_SIZE*nslots +
+            num_real_buf      *2*NP*NP                      *nslots);
   }
 
   void init_buffers (const FunctorsBuffersManager& fbm) {
@@ -93,6 +97,8 @@ struct LimiterFunctor {
     // Midpoints scalars
     m_buffers.buffer1       = decltype(m_buffers.buffer1)(mem,nslots);
     mem += m_buffers.buffer1.size();
+    m_buffers.realbuf       = decltype(m_buffers.realbuf)(reinterpret_cast<Real*>(mem),nslots);
+    mem += m_buffers.realbuf.size();
 
     assert ((reinterpret_cast<Real*>(mem) - fbm.get_memory())==requested_buffer_size());
   }
@@ -129,10 +135,19 @@ struct LimiterFunctor {
                            [&](const int ilev) {
         diff(ilev) = (dp(ilev) - m_dp3d_thresh*dp0(ilev))*spheremp;
       });
+    });
 
-      kv.team_barrier();
+    kv.team_barrier();
+
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(kv.team,NP*NP),
+                         [&](const int idx) {
+      const int igp = idx / NP;
+      const int jgp = idx % NP;
 
       Real min_diff = Kokkos::reduction_identity<Real>::min();
+      auto diff = Homme::subview(m_buffers.buffer1,kv.team_idx,igp,jgp);
+      auto dp   = Homme::subview(m_state.m_dp3d,kv.ie,m_np1,igp,jgp);
+      const auto dp0 = m_hvcoord.dp0;
       auto diff_as_real = Homme::viewAsReal(diff);
       auto dp_as_real   = Homme::viewAsReal(dp);
       auto dp0_as_real  = Homme::viewAsReal(dp0);
@@ -142,14 +157,17 @@ struct LimiterFunctor {
 #ifndef HOMMEXX_BFB_TESTING
         if(diff_as_real(k) < 0){
           printf("WARNING:CAAR: dp3d too small. k=%d, dp3d(k)=%f, dp0=%f \n",
-           k+1,dp_as_real(k),dp0_as_real(k));
+                 k+1,dp_as_real(k),dp0_as_real(k));
         }
 #endif
         result = result<=diff_as_real(k) ? result : diff_as_real(k);
       }, reducer);
+      m_buffers.realbuf(kv.team_idx,0,igp,jgp) = min_diff;
 
       auto vtheta_dp = Homme::subview(m_state.m_vtheta_dp,kv.ie,m_np1,igp,jgp);
 
+      // Gotta apply vertical mixing, to prevent levels from getting too thin.
+      Real mass = 0.0;
       if (min_diff<0) {
         // Compute vtheta = vtheta_dp/dp
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(kv.team,NUM_LEV),
@@ -157,9 +175,8 @@ struct LimiterFunctor {
           vtheta_dp(ilev) /= dp(ilev);
         });
 
-        // Gotta apply vertical mixing, to prevent levels from getting too thin.
-        Real mass = 0.0;
         ColumnOps::column_reduction<NUM_PHYSICAL_LEV>(kv.team,diff,mass);
+        m_buffers.realbuf(kv.team_idx,1,igp,jgp) = mass; // benign write race
 
         if (mass<0) {
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(kv.team,NUM_LEV),
@@ -167,8 +184,23 @@ struct LimiterFunctor {
             diff(ilev) *= -1.0;
           });
         }
+      }
+    });
+    kv.team_barrier();
 
-        kv.team_barrier();
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(kv.team,NP*NP),
+                         [&](const int idx) {
+      const int igp = idx / NP;
+      const int jgp = idx % NP;
+      const auto vtheta_dp = Homme::subview(m_state.m_vtheta_dp,kv.ie,m_np1,igp,jgp);
+      const auto dp = Homme::subview(m_state.m_dp3d,kv.ie,m_np1,igp,jgp);
+      const auto min_diff = m_buffers.realbuf(kv.team_idx,0,igp,jgp);
+      if (min_diff < 0) {
+        const auto spheremp = m_geometry.m_spheremp(kv.ie,igp,jgp);
+        const auto dp0 = m_hvcoord.dp0;
+        const auto mass = m_buffers.realbuf(kv.team_idx,1,igp,jgp);
+        auto diff = Homme::subview(m_buffers.buffer1,kv.team_idx,igp,jgp);
+        auto diff_as_real = Homme::viewAsReal(diff);
 
         // This loop must be done over physical levels, unless we implement
         // masks, like it has been done in the E3SM/scream project
@@ -193,7 +225,7 @@ struct LimiterFunctor {
           dp(ilev) = diff(ilev)/spheremp + m_dp3d_thresh*dp0(ilev);
           vtheta_dp(ilev) *= dp(ilev);
         });
-      } //end of min_diff < 0
+      } // end of min_diff < 0
 
       Kokkos::parallel_for(Kokkos::ThreadVectorRange(kv.team,NUM_LEV),
                            [&](const int ilev) {

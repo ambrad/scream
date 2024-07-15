@@ -541,30 +541,52 @@ struct CaarFunctorImpl {
       // TODO; skip calculation of omega_i
       // Note: pi_i and omega_i are not needed after computing pi and omega,
       //       so simply grab unused buffers
-      auto dp      = Homme::subview(m_state.m_dp3d,kv.ie,m_data.n0,igp,jgp);
-      auto div_vdp = Homme::subview(m_buffers.div_vdp,kv.team_idx,igp,jgp);
-      auto pi      = Homme::subview(m_buffers.pi,kv.team_idx,igp,jgp);
-      auto omega_i = Homme::subview(m_buffers.grad_phinh_i,kv.team_idx,0,igp,jgp);
       auto pi_i    = Homme::subview(m_buffers.grad_phinh_i,kv.team_idx,1,igp,jgp);
 
       Kokkos::single(Kokkos::PerThread(kv.team),[&]() {
         pi_i(0)[0] = m_hvcoord.ps0*m_hvcoord.hybrid_ai0;
       });
-      kv.team_barrier();
+    });
+    kv.team_barrier();
+
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(kv.team,NP*NP),
+                         [&](const int idx) {
+      const int igp = idx / NP;
+      const int jgp = idx % NP;
+
+      auto dp      = Homme::subview(m_state.m_dp3d,kv.ie,m_data.n0,igp,jgp);
+      auto pi_i    = Homme::subview(m_buffers.grad_phinh_i,kv.team_idx,1,igp,jgp);
+      auto pi      = Homme::subview(m_buffers.pi,kv.team_idx,igp,jgp);
 
       ColumnOps::column_scan_mid_to_int<true>(kv,dp,pi_i);
 
       ColumnOps::compute_midpoint_values(kv,pi_i,pi);
+    });
+    // Barrier so that the buffer shared by pi_i and omega_i is free for omega_i
+    // to use.
+    kv.team_barrier();
 
-      // Barrier so that the buffer shared by pi_i and omega_i is free for
-      // omega_i to use.
-      kv.team_barrier();
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(kv.team,NP*NP),
+                         [&](const int idx) {
+      const int igp = idx / NP;
+      const int jgp = idx % NP;
+
+      auto omega_i = Homme::subview(m_buffers.grad_phinh_i,kv.team_idx,0,igp,jgp);
 
       Kokkos::single(Kokkos::PerThread(kv.team),[&]() {
         omega_i(0)[0] = 0.0;
       });
-      kv.team_barrier();
+    });
+    kv.team_barrier();
 
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(kv.team,NP*NP),
+                         [&](const int idx) {
+      const int igp = idx / NP;
+      const int jgp = idx % NP;
+
+      auto omega_i = Homme::subview(m_buffers.grad_phinh_i,kv.team_idx,0,igp,jgp);
+      auto div_vdp = Homme::subview(m_buffers.div_vdp,kv.team_idx,igp,jgp);
+      
       ColumnOps::column_scan_mid_to_int<true>(kv,div_vdp,omega_i);
       // Average omega_i to midpoints, and change sign, since later
       //   omega=v*grad(pi)-average(omega_i)
@@ -1225,13 +1247,21 @@ struct CaarFunctorImpl {
         ColumnOps::compute_midpoint_values(kv,prod_x,mgrad_x);
         ColumnOps::compute_midpoint_values(kv,prod_y,mgrad_y);
       }
-      kv.team_barrier();
+    });
+    kv.team_barrier();
 
-      // Apply pgrad_correction: mgrad += cp*T0*(grad(log(exner))-grad(exner)/exner) (if applicable)
-      if (m_pgrad_correction) {
+    // Apply pgrad_correction: mgrad += cp*T0*(grad(log(exner))-grad(exner)/exner) (if applicable)
+    if (m_pgrad_correction) {
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(kv.team,NP*NP),
+                           [&](const int idx) {
+        const int igp = idx / NP;
+        const int jgp = idx % NP;
+
         using namespace PhysicalConstants;
         constexpr Real T0 = Tref - Tref_lapse_rate*Tref*cp/g;
 
+        const auto mgrad_x = Homme::subview(mgrad,0,igp,jgp);
+        const auto mgrad_y = Homme::subview(mgrad,1,igp,jgp);
         const auto grad_tmp_i_x   = Homme::subview(grad_tmp,0,igp,jgp);
         const auto grad_tmp_i_y   = Homme::subview(grad_tmp,1,igp,jgp);
         const auto grad_exner_i_x = Homme::subview(grad_exner,0,igp,jgp);
@@ -1243,8 +1273,14 @@ struct CaarFunctorImpl {
           mgrad_x(ilev) += cp*T0*(grad_tmp_i_x(ilev) - grad_exner_i_x(ilev)/exner_i(ilev));
           mgrad_y(ilev) += cp*T0*(grad_tmp_i_y(ilev) - grad_exner_i_y(ilev)/exner_i(ilev));
         });
-      }
+      });
       kv.team_barrier();
+    }
+
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(kv.team,NP*NP),
+                         [&](const int idx) {
+      const int igp = idx / NP;
+      const int jgp = idx % NP;
 
       // Compute KE. Also, add fcor to vort
       auto u  = Homme::subview(m_state.m_v,kv.ie,m_data.n0,0,igp,jgp);
