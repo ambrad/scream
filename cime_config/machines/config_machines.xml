@@ -1440,16 +1440,16 @@
         <command name="load">libunwind/1.5.0</command>
       </modules>
       <modules>
-        <command name="load">cce/15.0.1</command>
-        <command name="switch">craype craype/2.7.20</command>
-        <command name="switch">cray-mpich cray-mpich/8.1.26</command>
+        <command name="load">cce/17.0.0</command>
+        <command name="switch">craype craype/2.7.31</command>
+        <command name="switch">cray-mpich cray-mpich/8.1.28</command>
         <command name="load">cray-python/3.9.13.1</command>
         <command name="load">subversion/1.14.1</command>
         <command name="load">git/2.36.1</command>
         <command name="load">cmake/3.21.3</command>
-        <command name="load">cray-hdf5-parallel/1.12.2.1</command>
-        <command name="load">cray-netcdf-hdf5parallel/4.9.0.1</command>
-        <command name="load">cray-parallel-netcdf/1.12.3.1</command>
+        <command name="load">cray-hdf5-parallel/1.12.2.9</command>
+        <command name="load">cray-netcdf-hdf5parallel/4.9.0.9</command>
+        <command name="load">cray-parallel-netcdf/1.12.3.9</command>
         <command name="unload">darshan-runtime</command>
       </modules>
     </module_system>
@@ -1468,8 +1468,7 @@
       <env name="MPICH_CXX">$SHELL{which hipcc}</env>
       <env name="LD_LIBRARY_PATH">$ENV{CRAY_LD_LIBRARY_PATH}:$ENV{LD_LIBRARY_PATH}</env>
       <env name="SKIP_BLAS">True</env> <!-- find_package(blas) doesn't work well with Cray LibSci-->
-      <env name="GCC_X86_64">/opt/cray/pe/gcc/12.2.0/snos</env>
-      <env name="GCC_AARCH64">/opt/gcc-cross-aarch64/12.2.0/aarch64</env>
+      <env name="LD_PRELOAD">/usr/lib64/gcc/x86_64-suse-linux/13/libstdc++.so</env>
     </environment_variables>
 
     <environment_variables BUILD_THREADED="TRUE">
